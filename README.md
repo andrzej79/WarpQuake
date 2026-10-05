@@ -37,7 +37,6 @@ own `id1/pak0.pak` (and `pak1.pak` from the registered version) next to the prog
 - **v2**: optimise what v1 measures (span drawing in asm, surface cache, edge sorting).
   Done: faster than ClickBOOM's port, still bit-exact.
 - **16 bpp, sound, menus**: done.
-- **Next**: hardware acceleration using the FPGA and ARM on CS-Lab's Warp boards.
 
 ## Building
 
@@ -235,8 +234,7 @@ world span pixels / z-buffer words / alias pixels / surface cache KB built / bli
 The timers are E-clock reads at phase boundaries only, a few dozen per frame. The last line
 says what they cost: about 10 us a read here, 0.6 ms a frame, which is why the phase timers
 need `-prof` and a plain benchmark runs only the frame timer. Inside the hot loops there are only counter increments; those give the
-bytes each stage moves, which is the number that decides whether an offload to the ARM or
-FPGA could pay. The console commands are `prof` (report now; `prof <file>` also writes it)
+bytes each stage moves. The console commands are `prof` (report now; `prof <file>` also writes it)
 and `profreset`.
 
 **Mip bias** (trades texture sharpness for speed): `+d_mipscale 2` switches to the coarser
