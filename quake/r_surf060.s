@@ -25,8 +25,17 @@
 ; Calling convention: vbcc's, no arguments (everything is in r_surf.c's
 ; globals, which id kept non-static for their x86 version of this file).
 ;
+; 16 bpp (d_rgb.c): assembled again with PIX16 = 1 by r_surf060rgb.s, this
+; file gives R_DrawSurfaceBlockRGB_mip0..3, which light through
+; vid.colormap16 into a surface cache of 16-bit pixels: the index is the
+; same, the fetch scales it by 2 (free on the 68060) and moves a word.
+;
 
 	machine	68060
+
+	ifnd	PIX16
+PIX16	equ	0
+	endif
 
 	xref	_pbasesource		; unsigned char *: the block column's first texel
 	xref	_prowdestbase		; void *: its first surface-cache byte
@@ -39,12 +48,21 @@
 	xref	_r_stepback		; int: ... and its size, to wrap around
 	xref	_vid			; viddef_t; colormap at VID_COLORMAP
 
+	if PIX16
+	xdef	_R_DrawSurfaceBlockRGB_mip0
+	xdef	_R_DrawSurfaceBlockRGB_mip1
+	xdef	_R_DrawSurfaceBlockRGB_mip2
+	xdef	_R_DrawSurfaceBlockRGB_mip3
+	else
 	xdef	_R_DrawSurfaceBlock8_mip0
 	xdef	_R_DrawSurfaceBlock8_mip1
 	xdef	_R_DrawSurfaceBlock8_mip2
 	xdef	_R_DrawSurfaceBlock8_mip3
+	endif
 
 VID_COLORMAP	equ	4		; offsetof (viddef_t, colormap), vid.h
+VID_COLORMAP16	equ	8		; offsetof (viddef_t, colormap16)
+PIXB		equ	PIX16+1		; bytes a surface cache pixel
 
 	section	CODE,code		; vbcc's name: one hunk with the C, the profiler's map covers it
 
@@ -78,14 +96,22 @@ Index	macro
 
 ; Store d: its lit texel into the surface cache
 Store	macro
+	if PIX16
+	move.w	(a1,\1.l*2),-(a4)
+	else
 	move.b	(a1,\1.l),-(a4)
+	endif
 	endm
 
 SurfBlock	macro
 	movem.l	d2-d7/a2-a6,-(sp)
 	move.l	_pbasesource,a0
 	move.l	_prowdestbase,a2
+	if PIX16
+	move.l	_vid+VID_COLORMAP16,a1
+	else
 	move.l	_vid+VID_COLORMAP,a1
+	endif
 	move.l	_r_lightptr,a3
 	moveq	#0,d0
 	moveq	#0,d1
@@ -114,7 +140,7 @@ SurfBlock	macro
 	asr.l	#\2,d3				; lightstep = (lightleft - lightright) >> shift
 	move.l	d5,d2				; light = lightright
 	lea	\1(a0),a5
-	lea	\1(a2),a4
+	lea	\1*PIXB(a2),a4
 	Index	d1				; texels size-1 and size-2 in flight
 	Index	d0
 	rept	(\1/2)-1
@@ -147,6 +173,23 @@ SurfBlock	macro
 	rts
 	endm
 
+	if PIX16
+	cnop	0,4
+_R_DrawSurfaceBlockRGB_mip0
+	SurfBlock	16,4
+
+	cnop	0,4
+_R_DrawSurfaceBlockRGB_mip1
+	SurfBlock	8,3
+
+	cnop	0,4
+_R_DrawSurfaceBlockRGB_mip2
+	SurfBlock	4,2
+
+	cnop	0,4
+_R_DrawSurfaceBlockRGB_mip3
+	SurfBlock	2,1
+	else
 	cnop	0,4
 _R_DrawSurfaceBlock8_mip0
 	SurfBlock	16,4
@@ -162,6 +205,7 @@ _R_DrawSurfaceBlock8_mip2
 	cnop	0,4
 _R_DrawSurfaceBlock8_mip3
 	SurfBlock	2,1
+	endif
 
 
 	section	BSS,bss

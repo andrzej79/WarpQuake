@@ -122,6 +122,26 @@ void D_DrawParticle (particle_t *pparticle)
 	else if (pix > d_pix_max)
 		pix = d_pix_max;
 
+	// warpQuake 16bpp: one loop for every size (particles are few)
+	if (r_pixbytes == 2)
+	{
+		unsigned short	*pd = (unsigned short *)d_viewbuffer + d_scantable[v] + u;
+		unsigned short	c = d_8to16table[(int)pparticle->color & 255];	// a float here
+
+		for (count = pix << d_y_aspect_shift ; count ; count--, pz += d_zwidth, pd += screenwidth)
+		{
+			for (i=0 ; i<pix ; i++)
+			{
+				if (pz[i] <= izi)
+				{
+					pz[i] = izi;
+					pd[i] = c;
+				}
+			}
+		}
+		return;
+	}
+
 	switch (pix)
 	{
 	case 1:

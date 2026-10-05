@@ -37,6 +37,7 @@ void D_SpriteDrawSpans (sspan_t *pspan)
 	int			count, spancount, izistep;
 	int			izi;
 	byte		*pbase, *pdest;
+	unsigned short	*pdest16;	// warpQuake 16bpp
 	fixed16_t	s, t, snext, tnext, sstep, tstep;
 	float		sdivz, tdivz, zi, z, du, dv, spancountminus1;
 	float		sdivz8stepu, tdivz8stepu, zi8stepu;
@@ -58,6 +59,7 @@ void D_SpriteDrawSpans (sspan_t *pspan)
 	do
 	{
 		pdest = (byte *)d_viewbuffer + (screenwidth * pspan->v) + pspan->u;
+		pdest16 = (unsigned short *)d_viewbuffer + (screenwidth * pspan->v) + pspan->u;
 		pz = d_pzbuffer + (d_zwidth * pspan->v) + pspan->u;
 
 		count = pspan->count;
@@ -156,24 +158,48 @@ void D_SpriteDrawSpans (sspan_t *pspan)
 				}
 			}
 
-			do
+			if (r_pixbytes == 2)
 			{
-				btemp = *(pbase + (s >> 16) + (t >> 16) * cachewidth);
-				if (btemp != 255)
+				do
 				{
-					if (*pz <= (izi >> 16))
+					btemp = *(pbase + (s >> 16) + (t >> 16) * cachewidth);
+					if (btemp != 255)
 					{
-						*pz = izi >> 16;
-						*pdest = btemp;
+						if (*pz <= (izi >> 16))
+						{
+							*pz = izi >> 16;
+							*pdest16 = d_8to16table[btemp];
+						}
 					}
-				}
 
-				izi += izistep;
-				pdest++;
-				pz++;
-				s += sstep;
-				t += tstep;
-			} while (--spancount > 0);
+					izi += izistep;
+					pdest16++;
+					pz++;
+					s += sstep;
+					t += tstep;
+				} while (--spancount > 0);
+			}
+			else
+			{
+				do
+				{
+					btemp = *(pbase + (s >> 16) + (t >> 16) * cachewidth);
+					if (btemp != 255)
+					{
+						if (*pz <= (izi >> 16))
+						{
+							*pz = izi >> 16;
+							*pdest = btemp;
+						}
+					}
+
+					izi += izistep;
+					pdest++;
+					pz++;
+					s += sstep;
+					t += tstep;
+				} while (--spancount > 0);
+			}
 
 			s = snext;
 			t = tnext;

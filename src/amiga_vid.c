@@ -1,5 +1,8 @@
-// WarpQuake - video: an 8-bit CLUT RTG screen at the resolution the engine
-// renders, chosen at start (ASL requester, saved mode, or arguments).
+// WarpQuake - video: an 8-bit CLUT or 16-bit RGB RTG screen at the
+// resolution the engine renders, chosen at start (ASL requester, saved mode,
+// or arguments).  A 16-bit screen gets RGB pixels from the engine (d_rgb.c),
+// in its own format, and the damage/bonus flashes as a blend applied here,
+// as the frame is copied to the screen.
 
 #ifndef __VBCC__
 #define __reg(x)
@@ -55,6 +58,11 @@ static ULONG modeId = INVALID_ID;
 static int vidWidth = QUAKEGENERIC_RES_X, vidHeight = QUAKEGENERIC_RES_Y;
 static int blitMode;
 static char videoInfo[96];
+static int pixFormat = QG_PIX_CLUT8;   // the screen's, as a QG_PIX_* value
+static RGBFTYPE rgbFormat = RGBFB_CLUT; // ... and as P96 names it
+static int pixBytes = 1;
+static int wantDepth;                  // -bpp 8 / 16: only modes of that depth
+static UWORD *blendBuffer;             // a blended frame, for the unlocked path
 
 static const char *argValue(const char *name)
 {
@@ -76,15 +84,44 @@ MODE CHOICE
 ===============================================================================
 */
 
-// An RTG CLUT mode the engine can render at.
+// The QG_PIX_* value of a P96 pixel format; -1 for one the engine cannot
+// draw (24/32-bit and planar).
+static int qgFormat(ULONG rgb)
+{
+  switch(rgb) {
+  case RGBFB_CLUT:
+    return QG_PIX_CLUT8;
+  case RGBFB_R5G6B5:
+    return QG_PIX_RGB565;
+  case RGBFB_R5G5B5:
+    return QG_PIX_RGB555;
+  case RGBFB_R5G6B5PC:
+    return QG_PIX_RGB565PC;
+  case RGBFB_R5G5B5PC:
+    return QG_PIX_RGB555PC;
+  case RGBFB_B5G6R5PC:
+    return QG_PIX_BGR565PC;
+  case RGBFB_B5G5R5PC:
+    return QG_PIX_BGR555PC;
+  default:
+    return -1;
+  }
+}
+
+#define RGBFF_16BIT (RGBFF_R5G6B5 | RGBFF_R5G5B5 | RGBFF_R5G6B5PC | RGBFF_R5G5B5PC | RGBFF_B5G6R5PC | RGBFF_B5G5R5PC)
+
+// An RTG mode the engine can render at: CLUT or 16-bit RGB (only the one
+// -bpp asks for, if given).
 static BOOL modeUsable(ULONG id)
 {
   ULONG w, h;
+  int f;
 
   if(id == INVALID_ID || !p96GetModeIDAttr(id, P96IDA_ISP96)) {
     return FALSE;
   }
-  if(p96GetModeIDAttr(id, P96IDA_RGBFORMAT) != RGBFB_CLUT) {
+  f = qgFormat(p96GetModeIDAttr(id, P96IDA_RGBFORMAT));
+  if(f < 0 || (wantDepth == 8 && f != QG_PIX_CLUT8) || (wantDepth == 16 && f == QG_PIX_CLUT8)) {
     return FALSE;
   }
   w = p96GetModeIDAttr(id, P96IDA_WIDTH);
@@ -101,6 +138,10 @@ static ULONG __saveds modeFilter(__reg("a0") struct Hook *hook, __reg("a2") APTR
 
 static ULONG bestMode(int w, int h)
 {
+  if(wantDepth == 16) {
+    return p96BestModeIDTags(P96BIDTAG_NominalWidth, w, P96BIDTAG_NominalHeight, h, P96BIDTAG_Depth, 16,
+                             P96BIDTAG_FormatsAllowed, RGBFF_16BIT, TAG_DONE);
+  }
   return p96BestModeIDTags(P96BIDTAG_NominalWidth, w, P96BIDTAG_NominalHeight, h, P96BIDTAG_Depth, 8,
                            P96BIDTAG_FormatsAllowed, RGBFF_CLUT, TAG_DONE);
 }
@@ -146,9 +187,10 @@ static ULONG askMode(ULONG initial)
   filterHook.h_Entry = (HOOKFUNC)modeFilter;
 
   req = (struct ScreenModeRequester *)AllocAslRequestTags(
-    ASL_ScreenModeRequest, ASLSM_TitleText, (ULONG) "WarpQuake: screen mode (8-bit RTG)", ASLSM_InitialDisplayID,
+    ASL_ScreenModeRequest, ASLSM_TitleText, (ULONG) "WarpQuake: screen mode (8 or 16-bit RTG)", ASLSM_InitialDisplayID,
     initial != INVALID_ID ? initial : 0, ASLSM_MinWidth, MIN_WIDTH, ASLSM_MaxWidth, MAX_WIDTH, ASLSM_MinHeight,
-    MIN_HEIGHT, ASLSM_MaxHeight, MAX_HEIGHT, ASLSM_MinDepth, 8, ASLSM_MaxDepth, 8, ASLSM_FilterFunc,
+    MIN_HEIGHT, ASLSM_MaxHeight, MAX_HEIGHT, ASLSM_MinDepth, wantDepth == 16 ? 15 : 8, ASLSM_MaxDepth,
+    wantDepth == 8 ? 8 : 16, ASLSM_FilterFunc,
     (ULONG)&filterHook, TAG_DONE);
   if(req != NULL) {
     if(AslRequest(req, NULL)) {
@@ -163,10 +205,17 @@ static ULONG askMode(ULONG initial)
 
 // In order: -modeid, -width/-height, -asl (ask again), the saved mode, and
 // on a first start the requester.  A chosen mode is saved for next time.
+// -bpp 8 or 16 limits all of them to that depth; a saved mode of the other
+// depth then stands for its size (-bpp 16 alone: the saved 8-bit mode's
+// resolution, in 16 bits).
 static ULONG chooseMode(void)
 {
   const char *arg, *argH;
   ULONG id, saved;
+
+  if((arg = argValue("-bpp")) != NULL) {
+    wantDepth = (atoi(arg) >= 15) ? 16 : 8;
+  }
 
   if((arg = argValue("-modeid")) != NULL) {
     return strtoul(arg, NULL, 0);
@@ -182,6 +231,12 @@ static ULONG chooseMode(void)
   saved = loadSavedMode();
   if(argValue("-asl") == NULL && modeUsable(saved)) {
     return saved;
+  }
+  if(argValue("-asl") == NULL && wantDepth != 0 && saved != INVALID_ID && p96GetModeIDAttr(saved, P96IDA_ISP96)) {
+    id = bestMode((int)p96GetModeIDAttr(saved, P96IDA_WIDTH), (int)p96GetModeIDAttr(saved, P96IDA_HEIGHT));
+    if(modeUsable(id)) {
+      return id;
+    }
   }
   id = askMode(saved);
   if(modeUsable(id)) {
@@ -203,7 +258,8 @@ static void updateInfo(void)
     sprintf(videoInfo, "headless");
   } else {
     static const char *const names[] = {"WriteChunkyPixels", "lock+copy", "lock+MOVE16"};
-    sprintf(videoInfo, "mode 0x%08lx, blit %s", modeId, names[blitMode]);
+    sprintf(videoInfo, "mode 0x%08lx, %d bpp, blit %s", modeId, pixBytes * 8,
+            (pixBytes == 2 && blitMode == 0) ? "WritePixelArray" : names[blitMode]);
   }
 }
 
@@ -221,8 +277,12 @@ void QG_Init(void)
     if((arg = argValue("-height")) != NULL) {
       vidHeight = atoi(arg);
     }
+    if((arg = argValue("-bpp")) != NULL && atoi(arg) >= 15) {
+      pixFormat = QG_PIX_RGB565;       // what the Warp's RTG offers
+      pixBytes = 2;
+    }
     updateInfo();
-    qgPrintf("Video: headless %dx%d\n", vidWidth, vidHeight);
+    qgPrintf("Video: headless %dx%d, %d bpp\n", vidWidth, vidHeight, pixBytes * 8);
     return;
   }
 
@@ -237,16 +297,20 @@ void QG_Init(void)
 
   modeId = chooseMode();
   if(!modeUsable(modeId)) {
-    Sys_Error("No usable 8-bit RTG screen mode (0x%08lx); 320x200 to 1280x1024, try -asl", modeId);
+    Sys_Error("No usable %sRTG screen mode (0x%08lx); 320x200 to 1280x1024, try -asl",
+              wantDepth == 16 ? "16-bit " : (wantDepth == 8 ? "8-bit " : ""), modeId);
   }
   vidWidth = (int)p96GetModeIDAttr(modeId, P96IDA_WIDTH);
   vidHeight = (int)p96GetModeIDAttr(modeId, P96IDA_HEIGHT);
+  rgbFormat = (RGBFTYPE)p96GetModeIDAttr(modeId, P96IDA_RGBFORMAT);
+  pixFormat = qgFormat(rgbFormat);
+  pixBytes = (pixFormat == QG_PIX_CLUT8) ? 1 : 2;
 
-  qgScreen = OpenScreenTags(NULL, SA_DisplayID, modeId, SA_Width, vidWidth, SA_Height, vidHeight, SA_Depth, 8,
-                            SA_Quiet, TRUE, SA_ShowTitle, FALSE, SA_Type, CUSTOMSCREEN, SA_Exclusive, TRUE,
-                            SA_Draggable, FALSE, SA_Title, (ULONG) "WarpQuake", TAG_DONE);
+  qgScreen = OpenScreenTags(NULL, SA_DisplayID, modeId, SA_Width, vidWidth, SA_Height, vidHeight, SA_Depth,
+                            pixBytes * 8, SA_Quiet, TRUE, SA_ShowTitle, FALSE, SA_Type, CUSTOMSCREEN, SA_Exclusive,
+                            TRUE, SA_Draggable, FALSE, SA_Title, (ULONG) "WarpQuake", TAG_DONE);
   if(qgScreen == NULL) {
-    Sys_Error("Cannot open a %dx%d 8-bit screen (mode 0x%08lx)", vidWidth, vidHeight, modeId);
+    Sys_Error("Cannot open a %dx%d %d-bit screen (mode 0x%08lx)", vidWidth, vidHeight, pixBytes * 8, modeId);
   }
 
   qgWindow = OpenWindowTags(NULL, WA_CustomScreen, (ULONG)qgScreen, WA_Left, 0, WA_Top, 0, WA_Width, vidWidth,
@@ -270,7 +334,7 @@ void QG_Init(void)
   qgInputReset();
   qgInputHandlerStart();
   updateInfo();
-  qgPrintf("Video: mode 0x%08lx %dx%d\n", modeId, vidWidth, vidHeight);
+  qgPrintf("Video: mode 0x%08lx %dx%d, %d bpp\n", modeId, vidWidth, vidHeight, pixBytes * 8);
 }
 
 // Also the atexit() cleanup: safe to call twice, and with nothing open.
@@ -290,6 +354,10 @@ void QG_Quit(void)
     CloseScreen(qgScreen);
     qgScreen = NULL;
   }
+  if(blendBuffer != NULL) {
+    FreeVec(blendBuffer);
+    blendBuffer = NULL;
+  }
   if(P96Base != NULL) {
     CloseLibrary(P96Base);
     P96Base = NULL;
@@ -304,6 +372,11 @@ void QG_GetVideoSize(int *width, int *height)
 {
   *width = vidWidth;
   *height = vidHeight;
+}
+
+int QG_GetPixelFormat(void)
+{
+  return pixFormat;
 }
 
 const char *QG_VideoInfo(void)
@@ -323,45 +396,147 @@ BLIT
 ===============================================================================
 */
 
+/*
+ * The flash blend (16 bpp): each pixel moved toward the blend colour by
+ * alpha, per channel, in the screen's own format.  Big-endian formats go
+ * through qgBlend16 (blend16.s: one multiply a pixel, alpha in 1/32ths).  The
+ * C below is for PC formats, byte-swapped around it: red and blue blended
+ * together and green on its own, so that no field's product runs into the
+ * next (alpha in 1/64ths, 1/32ths for 5-5-5, where red starts a bit lower).
+ */
+static ULONG blendRBMask, blendGMask;  // the fields of the format
+static ULONG blendRB, blendG;          // the blend colour's fields * alpha
+static ULONG blendInv;                 // (1 << blendShift) - alpha
+static int blendShift;                 // 6, or 5 for 5-5-5 formats
+static BOOL blendOn, blendSwap;
+static ULONG blendParams[3];           // qgBlend16's: mask, spread(c) * a, 32 - a
+
+void QG_SetBlend(int r, int g, int b, int alpha)
+{
+  ULONG c, a;
+  BOOL is555 = (pixFormat == QG_PIX_RGB555 || pixFormat == QG_PIX_RGB555PC || pixFormat == QG_PIX_BGR555PC);
+  int t;
+
+  blendShift = is555 ? 5 : 6;
+  a = ((ULONG)alpha << blendShift) >> 8;
+  blendOn = (pixBytes == 2 && a != 0);
+  if(!blendOn) {
+    return;
+  }
+  if(pixFormat == QG_PIX_BGR565PC || pixFormat == QG_PIX_BGR555PC) {
+    t = r;
+    r = b;
+    b = t;
+  }
+  if(is555) {
+    c = ((ULONG)(r >> 3) << 10) | ((ULONG)(g >> 3) << 5) | (ULONG)(b >> 3);
+    blendRBMask = 0x7c1f;
+    blendGMask = 0x03e0;
+  } else {
+    c = ((ULONG)(r >> 3) << 11) | ((ULONG)(g >> 2) << 5) | (ULONG)(b >> 3);
+    blendRBMask = 0xf81f;
+    blendGMask = 0x07e0;
+  }
+  blendSwap = (pixFormat >= QG_PIX_RGB565PC);
+  blendRB = (c & blendRBMask) * a;
+  blendG = (c & blendGMask) * a;
+  blendInv = (1UL << blendShift) - a;
+
+  // qgBlend16: alpha in 1/32ths whatever the format
+  a = ((ULONG)alpha << 5) >> 8;
+  blendParams[0] = is555 ? 0x03e07c1fUL : 0x07e0f81fUL;
+  blendParams[1] = ((c | (c << 16)) & blendParams[0]) * a;
+  blendParams[2] = 32 - a;
+}
+
+// n pixels from src to dst, blended
+static void blendPixels(const UWORD *src, UWORD *dst, int n)
+{
+  ULONG rbMask = blendRBMask, gMask = blendGMask, rb0 = blendRB, g0 = blendG, inv = blendInv;
+  int shift = blendShift;
+
+  if(!blendSwap) {
+    qgBlend16(src, dst, (ULONG)n, blendParams);
+    return;
+  }
+  while(n-- > 0) {
+    ULONG p = *src++;
+    p = ((p << 8) | (p >> 8)) & 0xffff;
+    p = ((((p & rbMask) * inv + rb0) >> shift) & rbMask) | ((((p & gMask) * inv + g0) >> shift) & gMask);
+    *dst++ = (UWORD)((p << 8) | (p >> 8));
+  }
+}
+
 // Straight into the screen's memory, row by row: CopyMemQuick, or with
-// move16 MOVE16 bursts, which the uncached RTG memory is built for.  Falls
-// back to WriteChunkyPixels if the bitmap cannot be locked or is not CLUT, and
-// from MOVE16 to CopyMemQuick if anything is not 16-byte aligned.
+// move16 MOVE16 bursts, which the uncached RTG memory is built for (or
+// blended, at 16 bpp while a flash lasts).  FALSE if the bitmap cannot be
+// locked or is not in the mode's format: the caller falls back to the OS
+// call.  From MOVE16 to CopyMemQuick if anything is not 16-byte aligned.
 static BOOL blitLocked(const UBYTE *src, int y0, int rows, BOOL move16)
 {
   struct BitMap *bm = qgWindow->RPort->BitMap;
   struct RenderInfo ri;
   LONG lock;
   UBYTE *dst;
+  ULONG rowBytes = (ULONG)vidWidth * pixBytes;
   int y;
 
   lock = p96LockBitMap(bm, (UBYTE *)&ri, sizeof(ri));
   if(lock == 0) {
     return FALSE;
   }
-  if(ri.RGBFormat != RGBFB_CLUT || ri.Memory == NULL) {
+  if(ri.RGBFormat != rgbFormat || ri.Memory == NULL) {
     p96UnlockBitMap(bm, lock);
     return FALSE;
   }
   dst = (UBYTE *)ri.Memory + y0 * ri.BytesPerRow;
-  src += y0 * vidWidth;
-  if(move16 && (((ULONG)src | (ULONG)dst | (ULONG)vidWidth | (ULONG)ri.BytesPerRow) & 15) == 0) {
-    qgMove16Rows(src, dst, vidWidth, rows, ri.BytesPerRow);
-  } else if(((ULONG)src & 3) == 0 && ((ULONG)dst & 3) == 0 && (vidWidth & 3) == 0 && (ri.BytesPerRow & 3) == 0) {
+  src += y0 * rowBytes;
+  if(blendOn) {
     for(y = 0; y < rows; y++) {
-      CopyMemQuick((APTR)src, dst, vidWidth);
-      src += vidWidth;
+      blendPixels((const UWORD *)src, (UWORD *)dst, vidWidth);
+      src += rowBytes;
+      dst += ri.BytesPerRow;
+    }
+  } else if(move16 && (((ULONG)src | (ULONG)dst | rowBytes | (ULONG)ri.BytesPerRow) & 15) == 0) {
+    qgMove16Rows(src, dst, rowBytes, rows, ri.BytesPerRow);
+  } else if(((ULONG)src & 3) == 0 && ((ULONG)dst & 3) == 0 && (rowBytes & 3) == 0 && (ri.BytesPerRow & 3) == 0) {
+    for(y = 0; y < rows; y++) {
+      CopyMemQuick((APTR)src, dst, rowBytes);
+      src += rowBytes;
       dst += ri.BytesPerRow;
     }
   } else {
     for(y = 0; y < rows; y++) {
-      CopyMem((APTR)src, dst, vidWidth);
-      src += vidWidth;
+      CopyMem((APTR)src, dst, rowBytes);
+      src += rowBytes;
       dst += ri.BytesPerRow;
     }
   }
   p96UnlockBitMap(bm, lock);
   return TRUE;
+}
+
+// 16 bpp through P96 (vid_blit 0, or no lock): the frame as a RenderInfo in
+// the screen's format, blended first into blendBuffer while a flash lasts.
+static void blitPixelArray(const UBYTE *src, int y0, int rows)
+{
+  struct RenderInfo ri;
+  ULONG rowBytes = (ULONG)vidWidth * 2;
+
+  if(blendOn) {
+    if(blendBuffer == NULL) {
+      blendBuffer = AllocVec(rowBytes * vidHeight, MEMF_ANY);
+    }
+    if(blendBuffer != NULL) {
+      blendPixels((const UWORD *)(src + y0 * rowBytes), blendBuffer + y0 * vidWidth, vidWidth * rows);
+      src = (const UBYTE *)blendBuffer;
+    }
+  }
+  memset(&ri, 0, sizeof(ri));
+  ri.Memory = (APTR)src;
+  ri.BytesPerRow = (WORD)rowBytes;
+  ri.RGBFormat = rgbFormat;
+  p96WritePixelArray(&ri, 0, y0, qgWindow->RPort, 0, y0, vidWidth, rows);
 }
 
 // Rows y .. y+rows-1 only: the engine says which part of the frame changed
@@ -384,6 +559,10 @@ void QG_DrawFrameRows(void *pixels, int y, int rows)
   if(blitMode != 0 && blitLocked((const UBYTE *)pixels, y, rows, blitMode == 2)) {
     return;
   }
+  if(pixBytes == 2) {
+    blitPixelArray((const UBYTE *)pixels, y, rows);
+    return;
+  }
   WriteChunkyPixels(qgWindow->RPort, 0, y, vidWidth - 1, y + rows - 1, (UBYTE *)pixels + y * vidWidth, vidWidth);
 }
 
@@ -396,7 +575,7 @@ void QG_SetPalette(unsigned char palette[768])
 {
   int i;
 
-  if(qgScreen == NULL) {
+  if(qgScreen == NULL || pixBytes != 1) {
     return;
   }
   paletteTable[0] = (256UL << 16) | 0;

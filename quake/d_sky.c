@@ -66,6 +66,7 @@ void D_DrawSkyScans8 (espan_t *pspan)
 {
 	int				count, spancount, u, v;
 	unsigned char	*pdest;
+	unsigned short	*pdest16;		// warpQuake 16bpp
 	fixed16_t		s, t, snext, tnext, sstep, tstep;
 	int				spancountminus1;
 
@@ -76,6 +77,7 @@ void D_DrawSkyScans8 (espan_t *pspan)
 	{
 		pdest = (unsigned char *)((byte *)d_viewbuffer +
 				(screenwidth * pspan->v) + pspan->u);
+		pdest16 = (unsigned short *)d_viewbuffer + (screenwidth * pspan->v) + pspan->u;
 
 		count = pspan->count;
 
@@ -120,13 +122,26 @@ void D_DrawSkyScans8 (espan_t *pspan)
 				}
 			}
 
-			do
+			if (r_pixbytes == 2)
 			{
-				*pdest++ = r_skysource[((t & R_SKY_TMASK) >> 8) +
-						((s & R_SKY_SMASK) >> 16)];
-				s += sstep;
-				t += tstep;
-			} while (--spancount > 0);
+				do
+				{
+					*pdest16++ = d_8to16table[r_skysource[((t & R_SKY_TMASK) >> 8) +
+							((s & R_SKY_SMASK) >> 16)]];
+					s += sstep;
+					t += tstep;
+				} while (--spancount > 0);
+			}
+			else
+			{
+				do
+				{
+					*pdest++ = r_skysource[((t & R_SKY_TMASK) >> 8) +
+							((s & R_SKY_SMASK) >> 16)];
+					s += sstep;
+					t += tstep;
+				} while (--spancount > 0);
+			}
 
 			s = snext;
 			t = tnext;

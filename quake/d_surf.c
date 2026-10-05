@@ -141,7 +141,7 @@ surfcache_t     *D_SCAlloc (int width, int size)
 	if ((width < 0) || (width > 256))
 		Sys_Error ("D_SCAlloc: bad cache width %d\n", width);
 
-	if ((size <= 0) || (size > 0x10000))
+	if ((size <= 0) || (size > 0x10000 * r_pixbytes))	// warpQuake: 16bpp doubles it
 		Sys_Error ("D_SCAlloc: bad cache size %d\n", size);
 	
 	size = (int)&((surfcache_t *)0)->data[size];
@@ -308,7 +308,7 @@ surfcache_t *D_CacheSurface (msurface_t *surface, int miplevel)
 	if (!cache)     // if a texture just animated, don't reallocate it
 	{
 		cache = D_SCAlloc (r_drawsurf.surfwidth,
-						   r_drawsurf.surfwidth * r_drawsurf.surfheight);
+						   r_drawsurf.surfwidth * r_drawsurf.surfheight * r_pixbytes);
 		surface->cachespots[miplevel] = cache;
 		cache->owner = &surface->cachespots[miplevel];
 		cache->mipscale = surfscale;

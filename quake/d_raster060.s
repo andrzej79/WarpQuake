@@ -86,7 +86,7 @@
 	xref	_a_tstepxfrac
 	xref	_a_ststepxwhole
 	xref	_D_PolysetScanLeftEdge	; d_polyse060.s
-	xref	_D_PolysetDrawSpans8
+	xref	_d_polysetdrawspans	; d_polyse.c: D_PolysetDrawSpans8 or ...RGB (16bpp)
 
 	xdef	_D_DrawNonSubdiv
 	xdef	_D_PolysetSetEdgeTable
@@ -596,7 +596,8 @@ Rasterize
 	move.l	#PK_END,PK_COUNT(a1)
 	move.l	a1,-(sp)
 	move.l	a0,-(sp)
-	jsr	_D_PolysetDrawSpans8
+	move.l	_d_polysetdrawspans,a0
+	jsr	(a0)
 	addq.l	#4,sp
 	move.l	(sp)+,a1
 
@@ -622,7 +623,8 @@ Rasterize
 	move.l	_a_spans,a0
 	move.l	#PK_END,PK_COUNT(a0,d6.l)
 	move.l	a1,-(sp)
-	jsr	_D_PolysetDrawSpans8
+	move.l	_d_polysetdrawspans,a0
+	jsr	(a0)
 	addq.l	#4,sp
 
 .done

@@ -118,6 +118,22 @@ void R_LineGraph (int x, int y, int h)
 	
 	x += r_refdef.vrect.x;
 	y += r_refdef.vrect.y;
+
+	// warpQuake 16bpp: the same two colours as pixels
+	if (r_pixbytes == 2)
+	{
+		unsigned short	*d16 = (unsigned short *)vid.buffer + vid.rowbytes*y + x;
+
+		s = r_graphheight.value;
+		if (h>s)
+			h = s;
+		for (i=0 ; i<s ; i++, d16 -= vid.rowbytes*2)
+		{
+			d16[0] = d_8to16table[i < h ? 0xff : 0x30];
+			*(d16-vid.rowbytes) = d_8to16table[0x30];
+		}
+		return;
+	}
 	
 	dest = vid.buffer + vid.rowbytes*y + x;
 	

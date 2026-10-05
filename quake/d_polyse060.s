@@ -17,6 +17,16 @@
 
 	machine	68060
 
+; 16 bpp (d_rgb.c): assembled again with PIX16 = 1 by d_polyse060rgb.s, this
+; file gives D_PolysetDrawSpansRGB and D_PolysetRecursiveTriangleRGB, which
+; light through the 16-bit colormap (acolormap, d_pcolormap) and write 16-bit
+; pixels.  The rasterizer is not duplicated: it keeps computing 8-bit
+; pointers from d_viewbuffer, which here count pixels, so a pixel's address
+; is 2 * pdest - d_viewbuffer.
+	ifnd	PIX16
+PIX16	equ	0
+	endif
+
 	xref	_d_aspancount		; int: this triangle's span lengths ...
 	xref	_errorterm			; ... stepped Bresenham-style
 	xref	_erroradjustup
@@ -32,9 +42,14 @@
 	xref	_r_affinetridesc		; affinetridesc_t; skinwidth at ATD_SKINWIDTH
 	xref	_wqc_count			; unsigned long[]: wq_prof.h work counters
 
+	if PIX16
+	xdef	_D_PolysetDrawSpansRGB
+	xdef	_D_PolysetRecursiveTriangleRGB
+	else
 	xdef	_D_PolysetDrawSpans8
 	xdef	_D_PolysetScanLeftEdge
 	xdef	_D_PolysetRecursiveTriangle
+	endif
 
 	xref	_zspantable			; short *[]: z-buffer row starts
 	xref	_d_scantable		; int []: frame row offsets
@@ -109,7 +124,11 @@ WQC_POLY_PIXELS	equ	3*4			; wqc_count[] index, wq_prof.h
 ;------------------------------------------------------------------------------
 
 	cnop	0,4
+	if PIX16
+_D_PolysetDrawSpansRGB
+	else
 _D_PolysetDrawSpans8
+	endif
 	movem.l	d2-d7/a2-a6,-(sp)
 	move.l	4+11*4(sp),a2
 	move.l	a2,v_pkg
@@ -160,7 +179,14 @@ _D_PolysetDrawSpans8
 	tst.l	d0
 	ble	.nextpackage
 
+	if PIX16
+	move.l	PK_PDEST(a2),d6
+	add.l	d6,d6
+	sub.l	_d_viewbuffer,d6
+	move.l	d6,a0				; 2 * pdest - d_viewbuffer
+	else
 	move.l	PK_PDEST(a2),a0
+	endif
 	move.l	PK_PTEX(a2),a1
 	move.l	PK_SFRAC(a2),d4
 	swap	d4				; sfrac < 0x10000: its upper word is 0
@@ -179,9 +205,15 @@ _D_PolysetDrawSpans8
 	move.w	d3,d1				; light's bits 8-15 ...
 	move.b	(a1),d1				; ... and the texel
 	move.w	d6,-2(a2)
+	if PIX16
+	move.w	(a3,d1.l*2),(a0)
+.hidden
+	addq.l	#2,a0
+	else
 	move.b	(a3,d1.l),(a0)
 .hidden
 	addq.l	#1,a0
+	endif
 	add.l	a4,d2				; zi
 	add.l	a5,d3				; light
 	add.l	d7,d4				; s fraction: X = its carry
@@ -242,6 +274,7 @@ EdgeStep	macro
 	add.l	_d_zi\1step,d6
 	endm
 
+	if PIX16=0
 	cnop	0,4
 _D_PolysetScanLeftEdge
 	movem.l	d2-d7/a2-a3,-(sp)
@@ -292,6 +325,7 @@ _D_PolysetScanLeftEdge
 	move.l	d6,_d_zi
 	movem.l	(sp)+,d2-d7/a2-a3
 	rts
+	endif	; PIX16=0: D_PolysetScanLeftEdge
 
 ;------------------------------------------------------------------------------
 ; void D_PolysetRecursiveTriangle (int *lp1, int *lp2, int *lp3)
@@ -329,7 +363,11 @@ IfFar	macro
 	endm
 
 	cnop	0,4
+	if PIX16
+_D_PolysetRecursiveTriangleRGB
+	else
 _D_PolysetRecursiveTriangle
+	endif
 	movem.l	d2-d3/a2,-(sp)
 	movem.l	4+3*4(sp),a0-a2
 	bsr.s	.tri
@@ -418,12 +456,20 @@ _D_PolysetRecursiveTriangle
 	moveq	#0,d1
 	move.b	(a0,d3.l),d1
 	move.l	_d_pcolormap,a0
+	if PIX16
+	move.w	(a0,d1.l*2),d1
+	else
 	move.b	(a0,d1.l),d1
+	endif
 	; d_viewbuffer[d_scantable[y] + x] = pix
 	lea	_d_scantable,a0
 	add.l	(a0,d2.l*4),d0
 	move.l	_d_viewbuffer,a0
+	if PIX16
+	move.w	d1,(a0,d0.l*2)
+	else
 	move.b	d1,(a0,d0.l)
+	endif
 
 .nodraw
 	; recurse on (lp3, lp1, new), then (lp3, new, lp2)

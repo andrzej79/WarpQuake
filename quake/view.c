@@ -256,7 +256,24 @@ cshift_t	cshift_water = { {130,80,50}, 128 };
 cshift_t	cshift_slime = { {0,25,5}, 150 };
 cshift_t	cshift_lava = { {255,80,0}, 150 };
 
+// warpQuake 16bpp: tints for an RGB screen.  id's were tuned for the 8-bit
+// palette, where brown water reads as murk; on an RGB screen a dark blue
+// water (and a slightly toned-down slime and lava) looks the way ClickBOOM's
+// 16-bit mode does, whose tables these values follow.
+cshift_t	cshift_water_rgb = { {0,30,70}, 128 };
+cshift_t	cshift_slime_rgb = { {0,30,5}, 150 };
+cshift_t	cshift_lava_rgb = { {220,60,0}, 130 };
+
 cvar_t		v_gamma = {"gamma", "1", true};
+// warpQuake 16bpp: the damage and bonus flashes, blended into the frame as it
+// is shown (d_rgb.c); 0 drops them, as ClickBOOM's 16-bit mode does
+cvar_t		v_rgbflash = {"v_rgbflash", "1", true};
+// warpQuake: the under-water tint as R,G,B (0..255 each, any separators:
+// "50 80 130" from the console, 50,80,130 on the command line, where a
+// quoted value would arrive as its first word) instead of id's brown
+// (130 80 50; at 16 bpp the blue below); "" keeps the default.  A fourth
+// number sets how strong the tint is, 0..255 (default 128).
+cvar_t		v_watercolor = {"v_watercolor", "", true};
 
 byte		gammatable[256];	// palette is sent through this
 
@@ -419,13 +436,40 @@ void V_SetContentsColor (int contents)
 		cl.cshifts[CSHIFT_CONTENTS] = cshift_empty;
 		break;
 	case CONTENTS_LAVA:
-		cl.cshifts[CSHIFT_CONTENTS] = cshift_lava;
+		cl.cshifts[CSHIFT_CONTENTS] = (r_pixbytes == 2) ? cshift_lava_rgb : cshift_lava;
 		break;
 	case CONTENTS_SLIME:
-		cl.cshifts[CSHIFT_CONTENTS] = cshift_slime;
+		cl.cshifts[CSHIFT_CONTENTS] = (r_pixbytes == 2) ? cshift_slime_rgb : cshift_slime;
 		break;
 	default:
-		cl.cshifts[CSHIFT_CONTENTS] = cshift_water;
+		cl.cshifts[CSHIFT_CONTENTS] = (r_pixbytes == 2) ? cshift_water_rgb : cshift_water;
+		// warpQuake: v_watercolor, R G B [strength], replaces id's colour
+		{
+			char	*p = v_watercolor.string;
+			int		i;
+
+			for (i = 0 ; i < 4 && *p ; i++)
+			{
+				while (*p && (*p < '0' || *p > '9'))
+					p++;
+				if (!*p)
+					break;
+				{
+					int	v = Q_atoi (p);
+
+					if (v > 255)
+						v = 255;
+					if (i < 3)
+						cl.cshifts[CSHIFT_CONTENTS].destcolor[i] = v;
+					else
+						cl.cshifts[CSHIFT_CONTENTS].percent = v;
+				}
+				while (*p >= '0' && *p <= '9')
+					p++;
+			}
+			if (i < 3)
+				cl.cshifts[CSHIFT_CONTENTS] = (r_pixbytes == 2) ? cshift_water_rgb : cshift_water;
+		}
 	}
 }
 
@@ -514,6 +558,14 @@ void V_UpdatePalette (void)
 	force = V_CheckGamma ();
 	if (!new && !force)
 		return;
+
+	// warpQuake 16bpp: no palette to shift, the colour tables and the flash
+	// blend do it (d_rgb.c)
+	if (r_pixbytes == 2)
+	{
+		D_RGB_ShiftPalette (host_basepal, cl.cshifts);
+		return;
+	}
 			
 	basepal = host_basepal;
 	newpal = pal;
@@ -877,7 +929,7 @@ void V_RenderView (void)
 
 	R_PushDlights ();
 
-	if (lcd_x.value)
+	if (lcd_x.value && r_pixbytes == 1)	// warpQuake: steps vid.buffer in bytes
 	{
 		//
 		// render two interleaved views
@@ -966,6 +1018,8 @@ void V_Init (void)
 	
 	BuildGammaTable (1.0);	// no gamma yet
 	Cvar_RegisterVariable (&v_gamma);
+	Cvar_RegisterVariable (&v_rgbflash);
+	Cvar_RegisterVariable (&v_watercolor);
 }
 
 

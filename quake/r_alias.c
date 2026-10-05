@@ -731,6 +731,8 @@ void R_AliasSetupFrame (void)
 }
 
 
+static void *R_AliasColormap16 (void);
+
 /*
 ================
 R_AliasDrawModel
@@ -769,6 +771,8 @@ void R_AliasDrawModel (alight_t *plighting)
 	}
 
 	acolormap = currententity->colormap;
+	if (r_pixbytes == 2)
+		acolormap = R_AliasColormap16 ();
 
 	if (currententity != &cl.viewent)
 		ziscale = (float)0x8000 * (float)0x10000;
@@ -779,6 +783,62 @@ void R_AliasDrawModel (alight_t *plighting)
 		R_AliasPrepareUnclippedPoints ();
 	else
 		R_AliasPreparePoints ();
+}
+
+
+/*
+================
+R_AliasColormap16
+
+warpQuake 16bpp: the 16-bit colormap for the current entity.  A player's
+colours come as a translated copy of the 8-bit colormap (CL_NewTranslation);
+the 16-bit one is translated the same way, from the scoreboard colours, and
+kept per slot until they or the colour tables change.
+================
+*/
+static void *R_AliasColormap16 (void)
+{
+	static unsigned short	*trans16[MAX_SCOREBOARD];
+	static int				transcolors[MAX_SCOREBOARD], transgen[MAX_SCOREBOARD];
+	byte			map[256];
+	unsigned short	*dest;
+	const unsigned short	*src;
+	int				slot, i, j, top, bottom;
+
+	for (slot = 0 ; slot < cl.maxclients && slot < MAX_SCOREBOARD ; slot++)
+		if (currententity->colormap == cl.scores[slot].translations)
+			break;
+	if (slot >= cl.maxclients || slot >= MAX_SCOREBOARD)
+		return vid.colormap16;
+
+	if (!trans16[slot])
+	{
+		trans16[slot] = malloc (VID_GRADES*256*sizeof(unsigned short));
+		if (!trans16[slot])
+			return vid.colormap16;
+		transgen[slot] = -1;
+	}
+	if (transgen[slot] != d_rgbgeneration || transcolors[slot] != cl.scores[slot].colors)
+	{
+		// CL_NewTranslation's ranges, as an index map
+		top = cl.scores[slot].colors & 0xf0;
+		bottom = (cl.scores[slot].colors & 15) << 4;
+		for (i = 0 ; i < 256 ; i++)
+			map[i] = i;
+		for (j = 0 ; j < 16 ; j++)
+		{
+			map[TOP_RANGE+j] = (top < 128) ? top + j : top + 15 - j;
+			map[BOTTOM_RANGE+j] = (bottom < 128) ? bottom + j : bottom + 15 - j;
+		}
+		dest = trans16[slot];
+		src = vid.colormap16;
+		for (i = 0 ; i < VID_GRADES ; i++, dest += 256, src += 256)
+			for (j = 0 ; j < 256 ; j++)
+				dest[j] = src[map[j]];
+		transgen[slot] = d_rgbgeneration;
+		transcolors[slot] = cl.scores[slot].colors;
+	}
+	return trans16[slot];
 }
 
 

@@ -37,6 +37,75 @@ byte		*draw_chars;				// 8*8 graphic characters
 qpic_t		*draw_disc;
 qpic_t		*draw_backtile;
 
+/*
+ * warpQuake 16bpp: WAD pictures (the status bar's, the backtile) as 16-bit
+ * pixels, converted once and kept until the colour tables change
+ * (d_rgbgeneration), so that drawing one is a copy instead of a palette
+ * lookup a pixel (~0.9 ms a frame on the 060).  Only WAD lumps: they stay
+ * where they were loaded, so the address names the picture, while a
+ * cache_user picture (Draw_CachePic) can be freed and its memory reused.
+ * NULL for anything else: the caller converts as it draws.
+ */
+#define PIX16_SLOTS		256			// a power of 2; the WAD has ~150 pictures
+
+typedef struct
+{
+	byte			*data;
+	int				size;
+	int				gen;
+	unsigned short	*pixels;
+} pix16_t;
+
+static pix16_t	pix16[PIX16_SLOTS];
+
+static unsigned short *Draw_Pixels16 (byte *data, int size)
+{
+	unsigned	h;
+	int			i;
+	pix16_t		*p;
+
+	if (data < wad_base || data >= (byte *)wad_lumps)
+		return NULL;
+	h = ((uintptr_t)data >> 3) & (PIX16_SLOTS-1);
+	for (i = 0 ; i < PIX16_SLOTS ; i++, h = (h + 1) & (PIX16_SLOTS-1))
+	{
+		p = &pix16[h];
+		if (p->data == data && p->size == size)
+			break;
+		if (!p->data)
+		{
+			p->pixels = malloc (size * sizeof(unsigned short));
+			if (!p->pixels)
+				return NULL;
+			p->data = data;
+			p->size = size;
+			p->gen = d_rgbgeneration - 1;
+			break;
+		}
+	}
+	if (i == PIX16_SLOTS)
+		return NULL;
+	if (p->gen != d_rgbgeneration)
+	{
+		for (i = 0 ; i < size ; i++)
+			p->pixels[i] = d_8to16table[data[i]];
+		p->gen = d_rgbgeneration;
+	}
+	return p->pixels;
+}
+
+// n 16-bit pixels, two at a time (the 68060 does misaligned longwords)
+static void Draw_CopyPixels16 (unsigned short *dest, const unsigned short *src, int n)
+{
+	unsigned long		*d = (unsigned long *)dest;
+	const unsigned long	*s = (const unsigned long *)src;
+
+	for ( ; n >= 2 ; n -= 2)
+		*d++ = *s++;
+	if (n)
+		*(unsigned short *)d = *(const unsigned short *)s;
+}
+
 //=============================================================================
 /* Support Routines */
 
@@ -165,6 +234,22 @@ void Draw_Character (int x, int y, int num)
 	else
 		drawline = 8;
 
+	// warpQuake 16bpp: through the palette, transparent (0) skipped
+	if (r_pixbytes == 2)
+	{
+		unsigned short	*d16 = (unsigned short *)vid.conbuffer + y*vid.conrowbytes + x;
+
+		while (drawline--)
+		{
+			for (col = 0 ; col < 8 ; col++)
+				if (source[col])
+					d16[col] = d_8to16table[source[col]];
+			source += 128;
+			d16 += vid.conrowbytes;
+		}
+		return;
+	}
+
 	dest = vid.conbuffer + y*vid.conrowbytes + x;
 
 	// warpQuake: a character row is 8 bytes; its transparent ones (0) are
@@ -278,6 +363,30 @@ void Draw_Pic (int x, int y, qpic_t *pic)
 
 	source = pic->data;
 
+	// warpQuake 16bpp
+	if (r_pixbytes == 2)
+	{
+		unsigned short	*px = Draw_Pixels16 (source, pic->width * pic->height);
+
+		pusdest = (unsigned short *)vid.buffer + y * vid.rowbytes + x;
+		for (v=0 ; v<pic->height ; v++)
+		{
+			if (px)
+			{
+				Draw_CopyPixels16 (pusdest, px, pic->width);
+				px += pic->width;
+			}
+			else
+			{
+				for (u=0 ; u<pic->width ; u++)
+					pusdest[u] = d_8to16table[source[u]];
+			}
+			pusdest += vid.rowbytes;
+			source += pic->width;
+		}
+		return;
+	}
+
 	dest = vid.buffer + y * vid.rowbytes + x;
 
 	// warpQuake: longwords whatever the alignment (the 68060 does misaligned
@@ -318,6 +427,21 @@ void Draw_TransPic (int x, int y, qpic_t *pic)
 	}
 		
 	source = pic->data;
+
+	// warpQuake 16bpp
+	if (r_pixbytes == 2)
+	{
+		pusdest = (unsigned short *)vid.buffer + y * vid.rowbytes + x;
+		for (v=0 ; v<pic->height ; v++)
+		{
+			for (u=0 ; u<pic->width ; u++)
+				if ( (tbyte=source[u]) != TRANSPARENT_COLOR)
+					pusdest[u] = d_8to16table[tbyte];
+			pusdest += vid.rowbytes;
+			source += pic->width;
+		}
+		return;
+	}
 
 	dest = vid.buffer + y * vid.rowbytes + x;
 
@@ -382,6 +506,21 @@ void Draw_TransPicTranslate (int x, int y, qpic_t *pic, byte *translation)
 	}
 		
 	source = pic->data;
+
+	// warpQuake 16bpp
+	if (r_pixbytes == 2)
+	{
+		pusdest = (unsigned short *)vid.buffer + y * vid.rowbytes + x;
+		for (v=0 ; v<pic->height ; v++)
+		{
+			for (u=0 ; u<pic->width ; u++)
+				if ( (tbyte=source[u]) != TRANSPARENT_COLOR)
+					pusdest[u] = d_8to16table[translation[tbyte]];
+			pusdest += vid.rowbytes;
+			source += pic->width;
+		}
+		return;
+	}
 
 	dest = vid.buffer + y * vid.rowbytes + x;
 
@@ -476,6 +615,22 @@ void Draw_ConsoleBackground (int lines)
 		Draw_CharToConback (ver[x], dest+(x<<3));
 	
 // draw the pic
+	// warpQuake 16bpp
+	if (r_pixbytes == 2)
+	{
+		pusdest = (unsigned short *)vid.conbuffer;
+		fstep = 320*0x10000/vid.conwidth;
+		for (y=0 ; y<lines ; y++, pusdest += vid.conrowbytes)
+		{
+			v = (vid.conheight - lines + y)*200/vid.conheight;
+			src = conback->data + v*320;
+			f = 0;
+			for (x=0 ; x<vid.conwidth ; x++, f += fstep)
+				pusdest[x] = d_8to16table[src[f>>16]];
+		}
+		return;
+	}
+
 	dest = vid.conbuffer;
 
 	for (y=0 ; y<lines ; y++, dest += vid.conrowbytes)
@@ -515,6 +670,28 @@ void R_DrawRect (vrect_t *prect, int rowbytes, byte *psrc,
 	byte	t;
 	int		i, j, srcdelta, destdelta;
 	byte	*pdest;
+
+	// warpQuake 16bpp: the backtile from its converted copy
+	if (r_pixbytes == 2)
+	{
+		unsigned short	*pd = (unsigned short *)vid.buffer + (prect->y * vid.rowbytes) + prect->x;
+		unsigned short	*px = NULL;
+
+		if (!transparent && psrc >= r_rectdesc.ptexbytes)
+			px = Draw_Pixels16 (r_rectdesc.ptexbytes, r_rectdesc.rowbytes * r_rectdesc.height);
+		if (px)
+		{
+			px += psrc - r_rectdesc.ptexbytes;
+			for (i=0 ; i<prect->height ; i++, px += rowbytes, pd += vid.rowbytes)
+				Draw_CopyPixels16 (pd, px, prect->width);
+			return;
+		}
+		for (i=0 ; i<prect->height ; i++, psrc += rowbytes, pd += vid.rowbytes)
+			for (j=0 ; j<prect->width ; j++)
+				if (!transparent || psrc[j] != TRANSPARENT_COLOR)
+					pd[j] = d_8to16table[psrc[j]];
+		return;
+	}
 
 	pdest = vid.buffer + (prect->y * vid.rowbytes) + prect->x;
 
@@ -632,6 +809,17 @@ void Draw_Fill (int x, int y, int w, int h, int c)
 	unsigned		uc;
 	int				u, v;
 
+	// warpQuake 16bpp
+	if (r_pixbytes == 2)
+	{
+		uc = d_8to16table[c & 255];
+		pusdest = (unsigned short *)vid.buffer + y*vid.rowbytes + x;
+		for (v=0 ; v<h ; v++, pusdest += vid.rowbytes)
+			for (u=0 ; u<w ; u++)
+				pusdest[u] = uc;
+		return;
+	}
+
 	dest = vid.buffer + y*vid.rowbytes + x;
 	for (v=0 ; v<h ; v++, dest += vid.rowbytes)
 		for (u=0 ; u<w ; u++)
@@ -653,6 +841,30 @@ void Draw_FadeScreen (void)
 	VID_UnlockBuffer ();
 	S_ExtraUpdate ();
 	VID_LockBuffer ();
+
+	// warpQuake 16bpp: a quarter of the brightness, which is what the 8-bit
+	// pattern (three pixels in four black) averages to - smoothly, where
+	// the format allows a shift (d_rgbquartermask), else the same pattern
+	if (r_pixbytes == 2)
+	{
+		for (y=0 ; y<vid.height ; y++)
+		{
+			unsigned short	*p16 = (unsigned short *)vid.buffer + vid.rowbytes*y;
+			int				t = (y & 1) << 1;
+
+			for (x=0 ; x<vid.width ; x++)
+			{
+				if (d_rgbquartermask)
+					p16[x] = (p16[x] >> 2) & d_rgbquartermask;
+				else if ((x & 3) != t)
+					p16[x] = d_8to16table[0];
+			}
+		}
+		VID_UnlockBuffer ();
+		S_ExtraUpdate ();
+		VID_LockBuffer ();
+		return;
+	}
 
 	for (y=0 ; y<vid.height ; y++)
 	{

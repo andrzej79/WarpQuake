@@ -100,8 +100,8 @@ WORK:Games/warpQuake/id1/pak1.pak      (registered version)
 
 Run it from a Shell: `WarpQuake [options]`. It finds `id1/` next to the program (PROGDIR:).
 
-**Screen mode.** On the first start an ASL requester lists the 8-bit RTG modes from 320x200
-to 1280x1024 (the engine's limits). The choice is saved in `PROGDIR:WarpQuake.mode` and used
+**Screen mode.** On the first start an ASL requester lists the 8-bit and 16-bit RTG modes from
+320x200 to 1280x1024 (the engine's limits). The choice is saved in `PROGDIR:WarpQuake.mode` and used
 from then on. `-asl` asks again. `-modeid` or `-width`/`-height` override it for one run,
 which is handy in benchmark scripts. The engine renders at the mode's full size.
 
@@ -110,6 +110,7 @@ which is handy in benchmark scripts. The engine renders at the mode's full size.
 | `-asl` | choose the screen mode again |
 | `-modeid 0x...` | use this mode |
 | `-width W -height H` | use the 8-bit mode nearest WxH (headless: render at WxH) |
+| `-bpp 8` / `-bpp 16` | only modes of that depth; a saved mode of the other depth stands for its size |
 | `-aspect <f>` | pixel aspect (height/width). The default: modes up to 640 wide are shown 4:3, wider modes are square |
 | `-mem <MB>` | hunk size, 16 by default |
 | `-basedir <dir>` | where `id1/` is, if not next to the program |
@@ -125,6 +126,23 @@ each frame's movement with the last one's (WinQuake's filter). The mouse speed i
 `sensitivity` alone; both settings are saved in the config.
 
 The console is on the key left of `1`. Esc opens the menu.
+
+**16 bpp.** On a 16-bit RTG mode (5-6-5 or 5-5-5, either byte order) the renderer draws RGB
+pixels instead of palette indexes. Lighting is computed per colour rather than rounded to the
+nearest of the 256 palette entries, so it is smooth and keeps its hue; that is where 8-bit
+Quake's banding comes from. Under water, slime or lava and with a powerup, the tint is built into
+the colour tables. Changing one flushes the surface cache, as at a level start, so the first frame
+after it is slower. The damage and bonus flashes are blended into the frame as it is shown;
+`v_rgbflash 0` (saved) drops them, as ClickBOOM's 16-bit mode does. It costs about 5 ms a frame
+at 320x200 over 8 bits: the surface cache, the spans and the copy to the screen move twice the
+bytes. `screenshot` is 8-bit only.
+
+**Under-water tint.** At 16 bpp water tints dark blue, slime green and lava orange-red (the tints
+ClickBOOM's 16-bit mode uses); 8 bpp keeps id's brown water, tuned for the palette.
+`v_watercolor` (saved) replaces the water tint with an R,G,B colour and an optional strength
+(0..255, default 128), e.g. `v_watercolor 130,80,50` for id's brown at 16 bpp,
+`0,30,70,80` for a lighter blue. Commas are needed on the command line, where a quoted value
+would arrive as its first word only; `""` brings id's colour back.
 
 Cvar `vid_blit` (saved in config.cfg) picks how a frame reaches the screen. `0` uses
 WriteChunkyPixels. `1` locks the bitmap with p96LockBitMap and copies rows with CopyMemQuick.
@@ -234,6 +252,14 @@ for `r_zcover` 0 or 1:
 | demo3 | `53966e81` | `40d6596e` |
 
 (With the particle limit at 1536 and the world-vertex projection cache; see below.)
+
+**16 bpp** (`-bpp 16`, headless: 5-6-5) is checked the same way with `-rgbtest`: the colour
+tables then hold the 8-bit renderer's palette indexes, so the low byte of each 16-bit pixel is
+the 8-bit frame, and `-crc`, which then hashes only those bytes, must print the 8-bit references
+above. That checks every 16-bit drawer, asm and C, against the 8-bit renderer. Without
+`-rgbtest` the `ASM=0` build differs from `ASM=1` by a pixel in some frames, because vbcc
+rounds the C copy of the span drawer's floats differently (register allocation); the asm is the
+8-bit code assembled again.
 
 ## Checking on the Mac (vamos)
 

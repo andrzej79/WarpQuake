@@ -41,7 +41,7 @@ OPTFLAG := -O$(OPT)
 CFLAGS  = +aos68k_std -cpu=$(CPU) -fpu=$(CPU) -c99 $(OPTFLAG) -dontwarn=153 -dontwarn=214 -dontwarn=208 -dontwarn=81
 LIBS    := -lamiga -ldebug $(MATHLIB)
 LDFLAGS := $(LIBS)
-ASFLAGS := -quiet -Fhunk -m68060
+ASFLAGS := -quiet -Fhunk -m68060 -Iquake
 
 # ---- Sources ----
 # The engine list is quakegeneric's own (its CMakeLists.txt), less its null
@@ -84,6 +84,10 @@ $(OBJ_DIR)/quake/%.o: quake/%.s
 	@$(MKDIR) $(@D)
 	@echo "  AS $<"
 	@$(AS) $(ASFLAGS) -o $@ $< > $@.log 2>&1 || { cat $@.log; exit 1; }
+
+# The 16 bpp builds of the asm drawers: quake/X060rgb.s sets PIX16 and
+# includes quake/X060.s, so it is rebuilt when that changes.
+$(foreach f,$(wildcard quake/*060rgb.s),$(eval $(OBJ_DIR)/quake/$(notdir $(f:.s=.o)): $(f:rgb.s=.s)))
 
 # Engine files to build at -O2, the rest at -O1: an experiment knob, empty by
 # default.  13 hot files (r_draw r_bsp d_polyse r_alias r_aclip d_edge r_misc

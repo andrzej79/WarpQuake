@@ -38,15 +38,20 @@ size_t	surfcache_size;
 cvar_t	vid_blit = {"vid_blit", "0", true};
 static int	blitmode = -1;
 
+// On a 16-bit screen there is no palette to set: the colour tables are
+// built from it instead (d_rgb.c), and V_UpdatePalette does its shifts there.
 void	VID_SetPalette (unsigned char *palette)
 {
-	// quake generic
-	QG_SetPalette(palette);
+	if (r_pixbytes == 2)
+		D_RGB_ShiftPalette (palette, NULL);
+	else
+		QG_SetPalette(palette);
 }
 
 void	VID_ShiftPalette (unsigned char *palette)
 {
-	// quake generic
+	if (r_pixbytes == 2)
+		return;			// V_UpdatePalette calls D_RGB_ShiftPalette itself
 	QG_SetPalette(palette);
 }
 
@@ -75,9 +80,10 @@ void	VID_Init (unsigned char *palette)
 	QG_GetVideoSize(&width, &height);
 	if (width < 320 || height < 200 || width > MAXWIDTH || height > MAXHEIGHT)
 		Sys_Error ("VID_Init: %dx%d is outside 320x200 .. %dx%d", width, height, MAXWIDTH, MAXHEIGHT);
+	D_RGB_Init (QG_GetPixelFormat ());	// sets r_pixbytes
 
 	// zeroed: what malloc leaves there differs per build, and -crc sees it
-	vid_buffer_mem = calloc (width * height + 15, 1);
+	vid_buffer_mem = calloc (width * height * r_pixbytes + 15, 1);
 	vid_buffer = (byte *)(((intptr_t)vid_buffer_mem + 15) & ~(intptr_t)15);
 	zbuffer = calloc (width * height, sizeof(short));
 	if (!vid_buffer_mem || !zbuffer)
@@ -92,17 +98,17 @@ void	VID_Init (unsigned char *palette)
 	vid.colormap = host_colormap;
 	vid.fullbright = 256 - LittleLong (*((int *)vid.colormap + 2048));
 	vid.buffer = vid.conbuffer = vid_buffer;
-	vid.rowbytes = vid.conrowbytes = width;
+	vid.rowbytes = vid.conrowbytes = width;	// in pixels, also at 16 bpp
 	
 	d_pzbuffer = zbuffer;
 
-	surfcache_size = D_SurfaceCacheForRes(width, height);
+	surfcache_size = D_SurfaceCacheForRes(width, height) * r_pixbytes;
 	surfcache = calloc(surfcache_size, 1);
 	if (!surfcache)
 		Sys_Error ("VID_Init: no memory for a %d KB surface cache", (int)(surfcache_size / 1024));
 	D_InitCaches (surfcache, surfcache_size);
 
-	QG_SetPalette(palette);
+	VID_SetPalette(palette);
 }
 
 void	VID_Shutdown (void)
@@ -137,18 +143,41 @@ void	VID_Update (vrect_t *rects)
 			if (r->y + r->height > y1)
 				y1 = r->y + r->height;
 		}
+		// 16 bpp: the flash blend is applied as the frame is shown, so while
+		// it lasts, and once more when it changes, every row is shown again
+		// (the status bar too, which is not redrawn each frame)
+		if (r_pixbytes == 2 && (d_rgbblendchanged || D_RGB_Blending ()))
+		{
+			y0 = 0;
+			y1 = vid.height;
+			d_rgbblendchanged = false;
+		}
 		if (y1 > y0)
 		{
 			WQP_BEGIN (WQP_BLIT);
 			QG_DrawFrameRows (vid.buffer, y0, y1 - y0);
 			WQP_END (WQP_BLIT);
-			WQC_ADD (WQC_BLIT_BYTES, vid.width * (y1 - y0));
+			WQC_ADD (WQC_BLIT_BYTES, vid.width * r_pixbytes * (y1 - y0));
 		}
 	}
 	if (wqp_crcon)
 	{
 		WQP_BEGIN (WQP_CRC);
-		WQP_FrameCRC (vid.buffer, vid.width, vid.height, vid.rowbytes);
+		if (d_rgbtest)
+		{
+			// the low bytes only: the 8-bit frame, if the 16-bit drawers
+			// match the 8-bit ones (d_rgb.c)
+			static byte	*lowbytes;
+			int			i;
+
+			if (!lowbytes)
+				lowbytes = malloc (vid.width * vid.height);
+			for (i = 0 ; i < vid.width * vid.height ; i++)
+				lowbytes[i] = (byte)((unsigned short *)vid.buffer)[i];
+			WQP_FrameCRC (lowbytes, vid.width, vid.height, vid.width);
+		}
+		else
+			WQP_FrameCRC (vid.buffer, vid.width * r_pixbytes, vid.height, vid.rowbytes * r_pixbytes);
 		WQP_END (WQP_CRC);
 	}
 }

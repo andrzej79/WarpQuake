@@ -965,7 +965,7 @@ void R_RenderView_ (void)
 {
 	if (!warpbuffer)
 	{
-		warpbuffer = calloc (WARP_WIDTH * WARP_HEIGHT, 1);
+		warpbuffer = calloc (WARP_WIDTH * WARP_HEIGHT, 2);	// 16bpp too
 		if (!warpbuffer)
 			Sys_Error ("R_RenderView: no memory for the warp buffer");
 	}

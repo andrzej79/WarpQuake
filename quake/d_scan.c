@@ -32,6 +32,7 @@ int				*r_turb_turb;
 int				r_turb_spancount;
 
 void D_DrawTurbulent8Span (void);
+void D_DrawTurbulentRGBSpan (void);
 
 
 /*
@@ -73,6 +74,33 @@ void D_WarpScreen (void)
 	}
 
 	turb = intsintable + ((int)(cl.time*SPEED)&(CYCLE-1));
+
+	// warpQuake 16bpp: the same, with 16-bit pixels (rowptr[] was set up in
+	// pixels from a byte pointer: twice its offset is the row's address)
+	if (r_pixbytes == 2)
+	{
+		unsigned short	*dest16 = (unsigned short *)vid.buffer + scr_vrect.y * vid.rowbytes + scr_vrect.x;
+		unsigned short	**row16;
+
+		for (v=0 ; v<scr_vrect.height+AMP2*2 ; v++)
+			rowptr[v] = d_viewbuffer + (rowptr[v] - d_viewbuffer) * 2;
+
+		for (v=0 ; v<scr_vrect.height ; v++, dest16 += vid.rowbytes)
+		{
+			col = &column[turb[v]];
+			row16 = (unsigned short **)&rowptr[v];
+
+			for (u=0 ; u<scr_vrect.width ; u+=4)
+			{
+				dest16[u+0] = row16[turb[u+0]][col[u+0]];
+				dest16[u+1] = row16[turb[u+1]][col[u+1]];
+				dest16[u+2] = row16[turb[u+2]][col[u+2]];
+				dest16[u+3] = row16[turb[u+3]][col[u+3]];
+			}
+		}
+		return;
+	}
+
 	dest = vid.buffer + scr_vrect.y * vid.rowbytes + scr_vrect.x;
 
 	for (v=0 ; v<scr_vrect.height ; v++, dest += vid.rowbytes)
@@ -110,6 +138,29 @@ void D_DrawTurbulent8Span (void)
 	} while (--r_turb_spancount > 0);
 }
 
+/*
+=============
+D_DrawTurbulentRGBSpan
+
+warpQuake 16bpp: the same, through the palette (water is not lit)
+=============
+*/
+void D_DrawTurbulentRGBSpan (void)
+{
+	int		sturb, tturb;
+	unsigned short	*pdest = (unsigned short *)r_turb_pdest;
+
+	do
+	{
+		sturb = ((r_turb_s + r_turb_turb[(r_turb_t>>16)&(CYCLE-1)])>>16)&63;
+		tturb = ((r_turb_t + r_turb_turb[(r_turb_s>>16)&(CYCLE-1)])>>16)&63;
+		*pdest++ = d_8to16table[*(r_turb_pbase + (tturb<<6) + sturb)];
+		r_turb_s += r_turb_sstep;
+		r_turb_t += r_turb_tstep;
+	} while (--r_turb_spancount > 0);
+	r_turb_pdest = (unsigned char *)pdest;
+}
+
 #endif	// !WQ_ASM
 
 /*
@@ -123,7 +174,9 @@ void Turbulent8 (espan_t *pspan)
 	fixed16_t		snext, tnext;
 	float			sdivz, tdivz, zi, z, du, dv, spancountminus1;
 	float			sdivz16stepu, tdivz16stepu, zi16stepu;
+	void			(*drawspan)(void);	// warpQuake: 8 or 16 bpp
 	
+	drawspan = (r_pixbytes == 2) ? D_DrawTurbulentRGBSpan : D_DrawTurbulent8Span;
 	r_turb_turb = sintable + ((int)(cl.time*SPEED)&(CYCLE-1));
 
 	r_turb_sstep = 0;	// keep compiler happy
@@ -138,7 +191,7 @@ void Turbulent8 (espan_t *pspan)
 	do
 	{
 		r_turb_pdest = (unsigned char *)((byte *)d_viewbuffer +
-				(screenwidth * pspan->v) + pspan->u);
+				((screenwidth * pspan->v) + pspan->u) * r_pixbytes);
 
 		count = pspan->count;
 		WQC_ADD (WQC_TURB_PIXELS, count);
@@ -235,7 +288,7 @@ void Turbulent8 (espan_t *pspan)
 			r_turb_s = r_turb_s & ((CYCLE<<16)-1);
 			r_turb_t = r_turb_t & ((CYCLE<<16)-1);
 
-			D_DrawTurbulent8Span ();
+			(*drawspan) ();
 
 			r_turb_s = snext;
 			r_turb_t = tnext;
@@ -417,6 +470,143 @@ void D_DrawSpans16 (espan_t *pspan)
 	{
 		pdest = (unsigned char *)((byte *)d_viewbuffer +
 				(screenwidth * pspan->v) + pspan->u);
+
+		count = pspan->count;
+		WQC_ADD (WQC_SPAN_PIXELS, count);
+
+	// calculate the initial s/z, t/z, 1/z, s, and t and clamp
+		du = (float)pspan->u;
+		dv = (float)pspan->v;
+
+		sdivz = d_sdivzorigin + dv*d_sdivzstepv + du*d_sdivzstepu;
+		tdivz = d_tdivzorigin + dv*d_tdivzstepv + du*d_tdivzstepu;
+		zi = d_ziorigin + dv*d_zistepv + du*d_zistepu;
+		z = (float)0x10000 / zi;	// prescale to 16.16 fixed-point
+
+		s = (int)(sdivz * z) + sadjust;
+		if (s > bbextents)
+			s = bbextents;
+		else if (s < 0)
+			s = 0;
+
+		t = (int)(tdivz * z) + tadjust;
+		if (t > bbextentt)
+			t = bbextentt;
+		else if (t < 0)
+			t = 0;
+
+		do
+		{
+		// calculate s and t at the far end of the span
+			if (count >= 16)
+				spancount = 16;
+			else
+				spancount = count;
+
+			count -= spancount;
+
+			if (count)
+			{
+			// calculate s/z, t/z, zi->fixed s and t at far end of span,
+			// calculate s and t steps across span by shifting
+				sdivz += sdivz16stepu;
+				tdivz += tdivz16stepu;
+				zi += zi16stepu;
+				z = (float)0x10000 / zi;	// prescale to 16.16 fixed-point
+
+				snext = (int)(sdivz * z) + sadjust;
+				if (snext > bbextents)
+					snext = bbextents;
+				else if (snext < 8)
+					snext = 8;	// prevent round-off error on <0 steps from
+								//  from causing overstepping & running off the
+								//  edge of the texture
+
+				tnext = (int)(tdivz * z) + tadjust;
+				if (tnext > bbextentt)
+					tnext = bbextentt;
+				else if (tnext < 8)
+					tnext = 8;	// guard against round-off error on <0 steps
+
+				sstep = (snext - s) >> 4;
+				tstep = (tnext - t) >> 4;
+			}
+			else
+			{
+			// calculate s/z, t/z, zi->fixed s and t at last pixel in span (so
+			// can't step off polygon), clamp, calculate s and t steps across
+			// span by division, biasing steps low so we don't run off the
+			// texture
+				spancountminus1 = (float)(spancount - 1);
+				sdivz += d_sdivzstepu * spancountminus1;
+				tdivz += d_tdivzstepu * spancountminus1;
+				zi += d_zistepu * spancountminus1;
+				z = (float)0x10000 / zi;	// prescale to 16.16 fixed-point
+				snext = (int)(sdivz * z) + sadjust;
+				if (snext > bbextents)
+					snext = bbextents;
+				else if (snext < 8)
+					snext = 8;	// prevent round-off error on <0 steps from
+								//  from causing overstepping & running off the
+								//  edge of the texture
+
+				tnext = (int)(tdivz * z) + tadjust;
+				if (tnext > bbextentt)
+					tnext = bbextentt;
+				else if (tnext < 8)
+					tnext = 8;	// guard against round-off error on <0 steps
+
+				if (spancount > 1)
+				{
+					sstep = (snext - s) / (spancount - 1);
+					tstep = (tnext - t) / (spancount - 1);
+				}
+			}
+
+			do
+			{
+				*pdest++ = *(pbase + (s >> 16) + (t >> 16) * cachewidth);
+				s += sstep;
+				t += tstep;
+			} while (--spancount > 0);
+
+			s = snext;
+			t = tnext;
+
+		} while (count > 0);
+
+	} while ((pspan = pspan->pnext) != NULL);
+}
+
+/*
+=============
+D_DrawSpansRGB
+
+warpQuake 16bpp: D_DrawSpans16 with 16-bit texels and pixels (the surface
+cache holds lit RGB pixels)
+=============
+*/
+void D_DrawSpansRGB (espan_t *pspan)
+{
+	int				count, spancount;
+	unsigned short	*pbase, *pdest;
+	fixed16_t		s, t, snext, tnext, sstep, tstep;
+	float			sdivz, tdivz, zi, z, du, dv, spancountminus1;
+	float			sdivz16stepu, tdivz16stepu, zi16stepu;
+
+	sstep = 0;	// keep compiler happy
+	tstep = 0;	// ditto
+
+	pbase = (unsigned short *)cacheblock;
+
+	sdivz16stepu = d_sdivzstepu * 16;
+	tdivz16stepu = d_tdivzstepu * 16;
+	zi16stepu = d_zistepu * 16;
+
+	do
+	{
+		pdest = (unsigned short *)d_viewbuffer +
+				(screenwidth * pspan->v) + pspan->u;
 
 		count = pspan->count;
 		WQC_ADD (WQC_SPAN_PIXELS, count);

@@ -232,3 +232,16 @@ extern vrect_t	scr_vrect;
 
 extern byte		*r_warpbuffer;
 
+
+// warpQuake 16bpp (d_rgb.c).  On a 16-bit screen the renderer draws RGB
+// pixels, 2 bytes each, wherever it drew palette indexes; vid.rowbytes,
+// screenwidth and d_scantable still count pixels.
+extern int		r_pixbytes;			// 1: 8-bit palette indexes, 2: 16-bit RGB
+extern unsigned short	d_8to16table[256];	// the palette as pixels, shifts included
+extern qboolean	d_rgbblendchanged;	// the flash blend changed: show the whole frame
+void D_RGB_Init (int format);		// a QG_PIX_* format, from VID_Init
+void D_RGB_ShiftPalette (byte *pal, cshift_t *shifts);	// V_UpdatePalette, VID_SetPalette
+qboolean D_RGB_Blending (void);		// a flash blend is on
+extern int		d_rgbgeneration;	// counts table rebuilds (caches built from them)
+extern unsigned short	d_rgbquartermask;	// (p >> 2) & it quarters a pixel; 0: format can't
+extern qboolean	d_rgbtest;			// -rgbtest: the tables hold 8-bit indexes (d_rgb.c)

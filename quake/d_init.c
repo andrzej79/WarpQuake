@@ -147,7 +147,9 @@ void D_SetupFrame (void)
 // warpQuake: id's x86 choice, back for the 68060 (quakegeneric dropped it
 // with the asm): 16-pixel subdivision halves the divides and the per-block
 // work; 8 is the original C, kept for comparison
-	if (d_subdiv16.value)
+	if (r_pixbytes == 2)
+		d_drawspans = D_DrawSpansRGB;	// 16bpp: 16-pixel blocks only
+	else if (d_subdiv16.value)
 		d_drawspans = D_DrawSpans16;
 	else
 		d_drawspans = D_DrawSpans8;

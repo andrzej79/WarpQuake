@@ -49,6 +49,20 @@ static void	(*surfmiptable[4])(void) = {
 	R_DrawSurfaceBlock8_mip3
 };
 
+// warpQuake 16bpp: the same through vid.colormap16, into a surface cache of
+// 16-bit pixels (r_surf060rgb.s, or the C below)
+void R_DrawSurfaceBlockRGB_mip0 (void);
+void R_DrawSurfaceBlockRGB_mip1 (void);
+void R_DrawSurfaceBlockRGB_mip2 (void);
+void R_DrawSurfaceBlockRGB_mip3 (void);
+
+static void	(*surfmiptableRGB[4])(void) = {
+	R_DrawSurfaceBlockRGB_mip0,
+	R_DrawSurfaceBlockRGB_mip1,
+	R_DrawSurfaceBlockRGB_mip2,
+	R_DrawSurfaceBlockRGB_mip3
+};
+
 
 
 unsigned		blocklights[18*18];
@@ -257,7 +271,7 @@ void R_DrawSurface (void)
 // calculate the lightings
 	R_BuildLightMap ();
 	
-	surfrowbytes = r_drawsurf.rowbytes;
+	surfrowbytes = r_drawsurf.rowbytes * r_pixbytes;
 
 	mt = r_drawsurf.texture;
 	
@@ -279,9 +293,9 @@ void R_DrawSurface (void)
 
 //==============================
 
-	pblockdrawer = surfmiptable[r_drawsurf.surfmip];
+	pblockdrawer = (r_pixbytes == 2 ? surfmiptableRGB : surfmiptable)[r_drawsurf.surfmip];
 	// TODO: only needs to be set when there is a display settings change
-	horzblockstep = blocksize;
+	horzblockstep = blocksize * r_pixbytes;
 
 	smax = mt->width >> r_drawsurf.surfmip;
 	twidth = texwidth;
@@ -521,6 +535,58 @@ void R_DrawSurfaceBlock8_mip3 (void)
 			psource -= r_stepback;
 	}
 }
+
+/*
+================
+R_DrawSurfaceBlockRGB
+
+warpQuake 16bpp: one drawer for every mip level (the C reference only; the
+asm build has r_surf060rgb.s)
+================
+*/
+static void R_DrawSurfaceBlockRGB (int size, int shift)
+{
+	int				v, i, b, lightstep, light;
+	unsigned char	*psource;
+	unsigned short	*prowdest;
+
+	psource = pbasesource;
+	prowdest = prowdestbase;
+
+	for (v=0 ; v<r_numvblocks ; v++)
+	{
+		lightleft = r_lightptr[0];
+		lightright = r_lightptr[1];
+		r_lightptr += r_lightwidth;
+		lightleftstep = (r_lightptr[0] - lightleft) >> shift;
+		lightrightstep = (r_lightptr[1] - lightright) >> shift;
+
+		for (i=0 ; i<size ; i++)
+		{
+			lightstep = (int)(lightleft - lightright) >> shift;
+			light = lightright;
+
+			for (b=size-1; b>=0; b--)
+			{
+				prowdest[b] = vid.colormap16[(light & 0xFF00) + psource[b]];
+				light += lightstep;
+			}
+	
+			psource += sourcetstep;
+			lightright += lightrightstep;
+			lightleft += lightleftstep;
+			prowdest = (unsigned short *)((byte *)prowdest + surfrowbytes);
+		}
+
+		if (psource >= r_sourcemax)
+			psource -= r_stepback;
+	}
+}
+
+void R_DrawSurfaceBlockRGB_mip0 (void) { R_DrawSurfaceBlockRGB (16, 4); }
+void R_DrawSurfaceBlockRGB_mip1 (void) { R_DrawSurfaceBlockRGB (8, 3); }
+void R_DrawSurfaceBlockRGB_mip2 (void) { R_DrawSurfaceBlockRGB (4, 2); }
+void R_DrawSurfaceBlockRGB_mip3 (void) { R_DrawSurfaceBlockRGB (2, 1); }
 
 #endif	// !WQ_ASM
 

@@ -108,6 +108,12 @@ int		skinwidth;
 byte	*skinstart;
 
 void D_PolysetDrawSpans8 (spanpackage_t *pspanpackage);
+void D_PolysetDrawSpansRGB (spanpackage_t *pspanpackage);	// warpQuake 16bpp
+void D_PolysetRecursiveTriangleRGB (int *p1, int *p2, int *p3);
+
+// warpQuake: the span drawer for this frame's pixel size; the rasterizer
+// (d_raster060.s or the C) calls through it
+void		(*d_polysetdrawspans)(spanpackage_t *pspanpackage) = D_PolysetDrawSpans8;
 void D_PolysetCalcGradients (int skinwidth);
 void D_DrawSubdiv (void);
 void D_DrawNonSubdiv (void);
@@ -129,6 +135,8 @@ void D_PolysetDraw (void)
 
 	a_spans = (spanpackage_t *)
 			(((intptr_t)&spans[0] + CACHE_SIZE - 1) & ~(CACHE_SIZE - 1));
+
+	d_polysetdrawspans = (r_pixbytes == 2) ? D_PolysetDrawSpansRGB : D_PolysetDrawSpans8;
 
 	if (r_affinetridesc.drawtype)
 	{
@@ -166,6 +174,12 @@ void D_PolysetDrawFinalVerts (finalvert_t *fv, int numverts)
 				
 				*zbuf = z;
 				pix = skintable[fv->v[3]>>16][fv->v[2]>>16];
+				if (r_pixbytes == 2)	// warpQuake 16bpp
+				{
+					((unsigned short *)d_viewbuffer)[d_scantable[fv->v[1]] + fv->v[0]] =
+						((unsigned short *)acolormap)[pix + (fv->v[4] & 0xFF00)];
+					continue;
+				}
 				pix = ((byte *)acolormap)[pix + (fv->v[4] & 0xFF00) ];
 				d_viewbuffer[d_scantable[fv->v[1]] + fv->v[0]] = pix;
 			}
@@ -204,11 +218,18 @@ void D_DrawSubdiv (void)
 			continue;
 		}
 
-		d_pcolormap = &((byte *)acolormap)[index0->v[4] & 0xFF00];
+		// warpQuake 16bpp: a row of the 16-bit colormap
+		if (r_pixbytes == 2)
+			d_pcolormap = (byte *)&((unsigned short *)acolormap)[index0->v[4] & 0xFF00];
+		else
+			d_pcolormap = &((byte *)acolormap)[index0->v[4] & 0xFF00];
 
 		if (ptri[i].facesfront)
 		{
-			D_PolysetRecursiveTriangle(index0->v, index1->v, index2->v);
+			if (r_pixbytes == 2)
+				D_PolysetRecursiveTriangleRGB(index0->v, index1->v, index2->v);
+			else
+				D_PolysetRecursiveTriangle(index0->v, index1->v, index2->v);
 		}
 		else
 		{
@@ -225,7 +246,10 @@ void D_DrawSubdiv (void)
 			if (index2->flags & ALIAS_ONSEAM)
 				index2->v[2] += r_affinetridesc.seamfixupX16;
 
-			D_PolysetRecursiveTriangle(index0->v, index1->v, index2->v);
+			if (r_pixbytes == 2)
+				D_PolysetRecursiveTriangleRGB(index0->v, index1->v, index2->v);
+			else
+				D_PolysetRecursiveTriangle(index0->v, index1->v, index2->v);
 
 			index0->v[2] = s0;
 			index1->v[2] = s1;
@@ -378,14 +402,26 @@ split:
 		int		pix;
 		
 		*zbuf = z;
-		pix = d_pcolormap[skintable[new[3]>>16][new[2]>>16]];
-		d_viewbuffer[d_scantable[new[1]] + new[0]] = pix;
+		if (r_pixbytes == 2)	// warpQuake 16bpp (D_PolysetRecursiveTriangleRGB)
+			((unsigned short *)d_viewbuffer)[d_scantable[new[1]] + new[0]] =
+				((unsigned short *)d_pcolormap)[skintable[new[3]>>16][new[2]>>16]];
+		else
+		{
+			pix = d_pcolormap[skintable[new[3]>>16][new[2]>>16]];
+			d_viewbuffer[d_scantable[new[1]] + new[0]] = pix;
+		}
 	}
 
 nodraw:
 // recursively continue
 	D_PolysetRecursiveTriangle (lp3, lp1, new);
 	D_PolysetRecursiveTriangle (lp3, new, lp2);
+}
+
+// warpQuake 16bpp: the same function; it tests r_pixbytes itself
+void D_PolysetRecursiveTriangleRGB (int *lp1, int *lp2, int *lp3)
+{
+	D_PolysetRecursiveTriangle (lp1, lp2, lp3);
 }
 
 #endif	// !WQ_ASM
@@ -664,6 +700,80 @@ void D_PolysetDrawSpans8 (spanpackage_t *pspanpackage)
 	} while (pspanpackage->count != -999999);
 }
 
+/*
+================
+D_PolysetDrawSpansRGB
+
+warpQuake 16bpp: the same through the 16-bit colormap.  The rasterizer still
+works in 8-bit pointers from d_viewbuffer (pdest - d_viewbuffer is the pixel
+offset), so a pixel's address is d_viewbuffer + 2 * that.
+================
+*/
+void D_PolysetDrawSpansRGB (spanpackage_t *pspanpackage)
+{
+	int		lcount;
+	unsigned short	*lpdest;
+	byte	*lptex;
+	int		lsfrac, ltfrac;
+	int		llight;
+	int		lzi;
+	short	*lpz;
+
+	do
+	{
+		lcount = d_aspancount - pspanpackage->count;
+		if (lcount > 0)
+			WQC_ADD (WQC_POLY_PIXELS, lcount);
+
+		errorterm += erroradjustup;
+		if (errorterm >= 0)
+		{
+			d_aspancount += d_countextrastep;
+			errorterm -= erroradjustdown;
+		}
+		else
+		{
+			d_aspancount += ubasestep;
+		}
+
+		if (lcount)
+		{
+			lpdest = (unsigned short *)d_viewbuffer + ((byte *)pspanpackage->pdest - d_viewbuffer);
+			lptex = pspanpackage->ptex;
+			lpz = pspanpackage->pz;
+			lsfrac = pspanpackage->sfrac;
+			ltfrac = pspanpackage->tfrac;
+			llight = pspanpackage->light;
+			lzi = pspanpackage->zi;
+
+			do
+			{
+				if ((lzi >> 16) >= *lpz)
+				{
+					*lpdest = ((unsigned short *)acolormap)[*lptex + (llight & 0xFF00)];
+					*lpz = lzi >> 16;
+				}
+				lpdest++;
+				lzi += r_zistepx;
+				lpz++;
+				llight += r_lstepx;
+				lptex += a_ststepxwhole;
+				lsfrac += a_sstepxfrac;
+				lptex += lsfrac >> 16;
+				lsfrac &= 0xFFFF;
+				ltfrac += a_tstepxfrac;
+				if (ltfrac & 0x10000)
+				{
+					lptex += r_affinetridesc.skinwidth;
+					ltfrac &= 0xFFFF;
+				}
+			} while (--lcount);
+		}
+
+		pspanpackage++;
+	} while (pspanpackage->count != -999999);
+}
+
 #endif	// !WQ_ASM
 
 /*
@@ -901,7 +1011,7 @@ void D_RasterizeAliasPolySmooth (void)
 	d_countextrastep = ubasestep + 1;
 	originalcount = a_spans[initialrightheight].count;
 	a_spans[initialrightheight].count = -999999; // mark end of the spanpackages
-	D_PolysetDrawSpans8 (a_spans);
+	(*d_polysetdrawspans) (a_spans);
 
 // scan out the bottom part of the right edge, if it exists
 	if (pedgetable->numrightedges == 2)
@@ -925,7 +1035,7 @@ void D_RasterizeAliasPolySmooth (void)
 		d_countextrastep = ubasestep + 1;
 		a_spans[initialrightheight + height].count = -999999;
 											// mark end of the spanpackages
-		D_PolysetDrawSpans8 (pstart);
+		(*d_polysetdrawspans) (pstart);
 	}
 }
 

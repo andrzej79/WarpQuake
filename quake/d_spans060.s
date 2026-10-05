@@ -29,8 +29,18 @@
 ; Calling convention: vbcc's, arguments on the stack, d0-d1/a0-a1/fp0-fp1
 ; scratch, everything else preserved.
 ;
+; 16 bpp (d_rgb.c): assembled a second time with PIX16 = 1, by
+; d_spans060rgb.s, this file gives D_DrawSpansRGB and D_DrawTurbulentRGBSpan:
+; the same code with 16-bit texels (the surface cache holds lit RGB pixels)
+; and 16-bit pixels.  A texel offset still counts texels; the fetch scales it
+; by 2 in the addressing mode, which costs the 68060 nothing.
+;
 
 	machine	68060
+
+	ifnd	PIX16
+PIX16	equ	0
+	endif
 
 	xref	_cacheblock			; pixel_t *: the surface's cache block
 	xref	_cachewidth			; int: its width in pixels
@@ -55,10 +65,16 @@
 	xref	_d_zcov_x0			; short[]: per row, z is written from x0 ...
 	xref	_d_zcov_x1			; ... up to x1 (d_zcover.c)
 
+	if PIX16
+	xdef	_D_DrawSpansRGB
+	xdef	_D_DrawTurbulentRGBSpan
+	xref	_d_8to16table			; unsigned short[256]: the palette as pixels
+	else
 	xdef	_D_DrawSpans8
 	xdef	_D_DrawSpans16
 	xdef	_D_DrawZSpans
 	xdef	_D_DrawTurbulent8Span
+	endif
 
 	xref	_r_turb_pbase		; unsigned char *: the 64x64 water texture
 	xref	_r_turb_pdest		; unsigned char *: where the span goes on
@@ -214,7 +230,11 @@ Pixel	macro
 	move.l	\1,\2
 	add.l	a4,d2
 	addx.l	d4,\2
+	if PIX16
+	move.w	(a5,\1.l*2),(a1)+		; same size as the move.b: PIXEL_SIZE holds
+	else
 	move.b	(a5,\1.l),(a1)+
+	endif
 	add.l	a6,d3
 	subx.l	d6,d6
 	and.l	d5,d6
@@ -430,9 +450,11 @@ SpanDrawer	macro
 	rts
 	endm
 
+	if PIX16=0
 	cnop	0,4
 _D_DrawSpans8
 	SpanDrawer	8,3,$41000000
+	endif
 
 ;------------------------------------------------------------------------------
 ; void D_DrawSpans16 (espan_t *pspan)
@@ -550,7 +572,11 @@ LastSteps	macro
 	endm
 
 	cnop	0,4
+	if PIX16
+_D_DrawSpansRGB
+	else
 _D_DrawSpans16
+	endif
 	movem.l	d2-d7/a2-a6,-(sp)
 	fmovem.x	fp2-fp7,-(sp)
 	move.l	4+SAVED_INT+SAVED_FP(sp),a2
@@ -585,8 +611,14 @@ _D_DrawSpans16
 	muls.l	SPAN_V(a2),d1
 	fintrz.x	fp0
 	move.l	_d_viewbuffer,a1
+	if PIX16
+	add.l	SPAN_U(a2),d1
+	add.l	d1,d1				; 2 bytes a pixel
+	add.l	d1,a1
+	else
 	add.l	d1,a1
 	add.l	SPAN_U(a2),a1
+	endif
 	fmove.l	fp0,d0
 	move.l	a3,d1
 	add.l	d1,_wqc_count+WQC_SPAN_PIXELS
@@ -1077,6 +1109,7 @@ _D_DrawSpans16
 ;   d1 = lo, d6 = hi: the written part   d7 = u
 ;------------------------------------------------------------------------------
 
+	if PIX16=0
 	cnop	0,4
 _D_DrawZSpans
 	movem.l	d2-d7/a2-a6,-(sp)
@@ -1197,9 +1230,18 @@ _D_DrawZSpans
 ;   a0 = pdest  a1 = pbase  a2 = turb   d1, d6, d7 = scratch
 ;------------------------------------------------------------------------------
 
+	endif	; PIX16=0: D_DrawZSpans
+
 	cnop	0,4
+	if PIX16
+_D_DrawTurbulentRGBSpan				; the same, each texel through d_8to16table
+	movem.l	d2-d7/a2-a3,-(sp)
+	lea	_d_8to16table,a3
+	moveq	#0,d1
+	else
 _D_DrawTurbulent8Span
 	movem.l	d2-d7/a2,-(sp)
+	endif
 	move.l	_r_turb_pdest,a0
 	move.l	_r_turb_pbase,a1
 	move.l	_r_turb_turb,a2
@@ -1230,14 +1272,25 @@ _D_DrawTurbulent8Span
 	add.l	d7,d6
 	add.l	d4,d2				; s, t on for the next pixel, between the
 	add.l	d5,d3				; index and its use
+	if PIX16
+	move.b	(a1,d6.l),d1			; d1 was 0..127 (the AND): upper bits 0
+	subq.l	#1,d0				; between the load and its use as an index
+	move.w	(a3,d1.l*2),(a0)+
+	tst.l	d0				; (the MOVE set the flags)
+	else
 	move.b	(a1,d6.l),(a0)+
 	subq.l	#1,d0
+	endif
 	bgt.s	.turb
 	move.l	a0,_r_turb_pdest			; the next block goes on from here
 	move.l	d2,_r_turb_s
 	move.l	d3,_r_turb_t
 	clr.l	_r_turb_spancount
+	if PIX16
+	movem.l	(sp)+,d2-d7/a2-a3
+	else
 	movem.l	(sp)+,d2-d7/a2
+	endif
 	rts
 
 ;------------------------------------------------------------------------------

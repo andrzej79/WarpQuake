@@ -68,6 +68,22 @@ void QG_GetVideoSize(int *width, int *height);  // valid after QG_Init()
 void QG_SetBlitMode(int mode);          // vid_blit: 0 WriteChunkyPixels, 1 lock + copy, 2 lock + MOVE16
 const char *QG_VideoInfo(void);         // mode and blit path, for reports
 
+// 16bpp: the screen's pixel format, valid after QG_Init().  CLUT8 shows
+// palette indexes; the others are 16-bit RGB in the screen's own layout (PC =
+// little-endian), which the renderer's colour tables (d_rgb.c) are built in.
+enum
+{
+	QG_PIX_CLUT8,
+	QG_PIX_RGB565, QG_PIX_RGB555,
+	QG_PIX_RGB565PC, QG_PIX_RGB555PC,
+	QG_PIX_BGR565PC, QG_PIX_BGR555PC
+};
+int QG_GetPixelFormat(void);
+// 16bpp: blend the frame toward r,g,b (0..255) by alpha/256 as it is shown;
+// alpha 0 is off.  The damage and bonus flashes, which an 8-bit screen gets
+// from its palette.
+void QG_SetBlend(int r, int g, int b, int alpha);
+
 // v1: instrumentation (wq_prof.c)
 unsigned long QG_Ticks(void);           // free-running counter, wraps
 unsigned long QG_TickRate(void);        // its frequency in Hz

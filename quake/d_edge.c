@@ -86,6 +86,21 @@ void D_DrawSolidSurface (surf_t *surf, int color)
 	espan_t	*span;
 	byte	*pdest;
 	int		u, u2, pix;
+
+	// warpQuake 16bpp
+	if (r_pixbytes == 2)
+	{
+		unsigned short	c = d_8to16table[color];
+
+		for (span=surf->spans ; span ; span=span->pnext)
+		{
+			unsigned short	*pd = (unsigned short *)d_viewbuffer + screenwidth*span->v + span->u;
+
+			for (u = span->count ; u > 0 ; u--)
+				*pd++ = c;
+		}
+		return;
+	}
 	
 	pix = (color<<24) | (color<<16) | (color<<8) | color;
 	for (span=surf->spans ; span ; span=span->pnext)

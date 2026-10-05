@@ -635,6 +635,13 @@ void SCR_ScreenShot_f (void)
 		return;
  	}
 
+	// warpQuake: a PCX is 8-bit; a 16-bit frame has no palette indexes
+	if (r_pixbytes == 2)
+	{
+		Con_Printf ("SCR_ScreenShot_f: not on a 16-bit screen\n");
+		return;
+	}
+
 // 
 // save the pcx file 
 // 
