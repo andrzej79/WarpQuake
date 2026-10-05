@@ -1,26 +1,43 @@
-# warpQuake
+# WarpQuake
 
-Quake for AmigaOS 3.x on a Warp 68060 card, Picasso96 only.
+Quake for AmigaOS 3.x on a 68060 with an RTG (Picasso96) screen, written for the Warp
+accelerators and fast on any 68060.
 
-**Status: v1.** id's software renderer on an 8-bit CLUT RTG screen at any mode from 320x200
-to 1280x1024, with keyboard and mouse, plus built-in profiling. There is no sound, CD audio or
-networking yet. v0 ran `timedemo demo1` at 16.8 fps on a 68060 @ 108 MHz (320x200). The
-fastest port known on the same machine, ClickBOOM's, does 25.4.
+id's software renderer, bit-exact with id's C code (every change is checked frame by frame,
+see *Profiling* below), with its hot paths in 68060 assembly:
+
+- 8-bit CLUT or 16-bit RGB screens, any mode from 320x200 to 1280x1024, chosen with an ASL
+  requester or switched in the game (Options / Video Options). At 16 bpp the lighting is
+  computed per colour instead of rounded to the 256-colour palette.
+- Sound through AHI, any audio mode at 11025 to 44100 Hz (Options / Sound Options).
+- Raw mouse input, the keyboard, and built-in profiling (phase timers, a sampling profiler,
+  frame CRCs).
+
+`timedemo demo1` at 320x200 on a 68060 at 108 MHz: 26.3 fps at 8 bpp, 23.7 fps at 16 bpp
+with the damage/bonus flashes off (`v_rgbflash 0`; 23.1 with them), all without sound, which
+costs about 2.6 ms a frame at 22050 Hz. ClickBOOM's port, the fastest
+known before, does 25.4 and 23.0 on the same machine.
+
+There is no networking, CD audio or music yet.
 
 The engine in `quake/` is id's GPL WinQuake through
 [quakegeneric](https://github.com/erysdren/quakegeneric). That is WinQuake with the x86
 assembly and the DOS/Windows code removed, so the renderer is pure C. It was imported
-unchanged (see the first commit touching `quake/`); every change since is an ordinary diff.
-`src/` is the AmigaOS platform layer.
+unchanged (the first commit), as were id's sound files later; every change since is an
+ordinary diff. `src/` is the AmigaOS platform layer.
+
+WarpQuake is GPL v2, as id's code is (`LICENSE`). Quake's game data is not included: copy your
+own `id1/pak0.pak` (and `pak1.pak` from the registered version) next to the program.
 
 ## Roadmap
 
 - **v0**: runs at all. 320x200x8, null sound.
 - **v1**: a screen-mode chooser and real resolutions. Instrumentation: phase timers per
   frame, the on-machine sampling profiler, and bytes moved per stage.
-- **v2**: optimise what v1 measures (span drawing in asm, surface cache, edge sorting,
-  direct-to-VRAM).
-- **v3+**: the fastest Amiga Quake. Offload stages to the board's ARM or the FPGA where the
+- **v2**: optimise what v1 measures (span drawing in asm, surface cache, edge sorting).
+  Done: faster than ClickBOOM's port, still bit-exact.
+- **16 bpp, sound, menus**: done.
+- **Next**: the fastest Amiga Quake. Offload stages to the Warp board's ARM or FPGA where the
   transfer costs less than the 68060 time it saves.
 
 ## Building
@@ -34,8 +51,20 @@ make ftp-data       # upload the paks to WORK:Games/warpQuake/id1 (create it fir
 ```
 
 vbcc, `-cpu=68060 -fpu=68060 -O1` with `-lm060`. The optimisation level is -O1 and not -O2
-because of vbcc's known -O2 loop miscompile (see warpPDFViewer). `OPT=2` builds an experiment
-into a separate object directory.
+because vbcc 0.9h miscompiles some loops at -O2. `OPT=2` builds an experiment into a separate
+object directory.
+
+What the build needs, all overridable on the `make` command line:
+- vbcc (with its m68k-amigaos target) and vasm, on the PATH; `VBCC` points at vbcc's tree.
+- The AmigaOS 3.2 NDK (`NDK_INC_C`, default `$(SDK_DIR)/NDK3.2R4/Include_H`; `SDK_DIR` is
+  `/opt/amiga_sdk`).
+- The Picasso96 developer headers (`P96_SDK`, the directory holding `libraries/Picasso96.h`)
+  and AHI's developer headers (`AHI_SDK`, the one holding `devices/ahi.h`, from the `ahidev`
+  archive on Aminet). Their defaults are the paths where they sit when this repo is checked
+  out inside the project it was developed in.
+
+`make ftp` and `make ftp-data` upload with `tools/amiput.py`, which reads the Amiga's FTP
+login from `tools/ftp_config.local` (git-ignored; copy `tools/ftp_config.local.example`).
 
 `quake/*.s` holds 68060 assembly that replaces C routines, assembled with vasm. `WQ_ASM` in
 `quakedef.h` selects it, the way `id386` once selected id's x86 code. `make ASM=0` builds the
@@ -216,7 +245,7 @@ mip levels nearer the eye (1 is id's default; 1.5, 2, 3 are steps), `+d_mipcap 1
 the full-size textures.  Fewer texels means fewer cache misses in the span loop and smaller
 surface-cache blocks.  Models are not affected.
 
-**Function-level hot spots** (the sampling profiler from warpPDFViewer):
+**Function-level hot spots** (the sampling profiler, `src/wqsample.c`):
 
 ```
 WarpQuake -benchmark -sample +timedemo demo1    # writes RAM:WarpQuake.wprf (-samplefile <f>)
@@ -228,20 +257,6 @@ tools/wprof.py temp/WarpQuake.wprf build/WarpQuake_sym.map
 `profsample` and `profsample stop` do the same by hand from the console. The `make prof` map
 matches the uploaded `build/WarpQuake`, as long as both come from the same build. vbcc leaves
 static functions nameless, so their time lands on the global function before them.
-
-**Profiling another program** (for comparisons): `make attach` builds `build/WQAttach`
-(`make ftp-attach` uploads it). Start it first, then the program in another Shell:
-
-```
-WQAttach CMD=quake060_cb TASKS="Quake Render Process,Quake Color Process,Quake Sound Process" SECONDS=120 TO=RAM:cb.watt
-tools/amiget.py ram:cb.watt
-tools/wattach.py temp/cb.watt <the program's executable> --disasm 10
-```
-
-It waits for a Shell process running CMD, records where its hunks were loaded, and samples that
-process and the named tasks (a program's helper processes run its code too) at about 1 kHz until
-the program exits. `wattach.py` finds the PC slot, ranks the hottest code ranges per task and
-disassembles them (capstone) for reading. There are no symbols, so ranges stand in for functions.
 
 **Checking that an optimisation draws the same pixels** (`-crc`):
 
@@ -284,9 +299,10 @@ rounds the C copy of the span drawer's floats differently (register allocation);
 
 ## Checking on the Mac (vamos)
 
-`-headless` runs the whole engine without graphics.library. Under vamos (see the vamos note in
-the csAmigaWarp notes: amitools from git, machine68k, greenlet) this checks loading, game code
-and the renderer end to end. It does not measure speed.
+`-headless` runs the whole engine without graphics.library. Under vamos (the AmigaOS emulator
+from [amitools](https://github.com/cnvogelg/amitools): install it from git, with `machine68k`
+and `greenlet`) this checks loading, game code and the renderer end to end. It does not measure
+speed.
 
 ```
 vamos -C 68040 -s 600 -m 65536 -H disable -V work:<dir> -- work:WarpQuake -headless -basedir work: -benchmark +timedemo demo1

@@ -26,8 +26,9 @@
 #include <proto/intuition.h>
 #include <proto/asl.h>
 
-/* Picasso96: the structures from the repo's P96 SDK, the vbcc call stubs from
-   the compiler's own tree (see warpPDFViewer/src/viewer/pageview.c). */
+/* Picasso96: the structures from the Picasso96 developer headers (P96_SDK in
+   the Makefile), the call stubs from vbcc's own inline/ tree, whose
+   prototypes need stdargs for the tag-list functions. */
 #include <libraries/Picasso96.h>
 #pragma stdargs-on
 #include <clib/Picasso96_protos.h>

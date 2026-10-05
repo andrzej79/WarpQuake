@@ -1,5 +1,7 @@
 # Objects and binaries
 build/
+# Quake's game data (make ftp-data's default source): id's, not ours to publish
+id1/
 # FTP login for tools/amiget.py - never commit
 tools/ftp_config.local
 # Logs and files fetched from the Amiga: local measurements only
