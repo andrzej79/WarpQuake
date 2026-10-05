@@ -1,5 +1,14 @@
 // WarpQuake - input: the game window's IDCMP messages turned into Quake key
 // events and mouse deltas.
+//
+// The mouse comes, by default, from an input handler (priority 51, just in
+// front of Intuition) that adds up the raw relative mouse counts and passes
+// every event on.  IDCMP_MOUSEMOVE deltas are what Intuition makes of those
+// counts: accelerated by the Input preferences, and only while the window's
+// mouse queue has room - Intuition stops sending them to a window that has
+// five unreplied, and the game only drains its port once a frame, which a
+// mouse reporting faster than ~125 Hz can fill.  The raw counts are neither
+// accelerated nor ever dropped.  in_rawmouse 0 goes back to IDCMP.
 
 #ifndef __VBCC__
 #define __reg(x)
@@ -7,6 +16,8 @@
 #endif
 
 #include <exec/types.h>
+#include <exec/interrupts.h>
+#include <devices/input.h>
 #include <devices/inputevent.h>
 #include <dos/dos.h>
 #include <intuition/intuition.h>
@@ -42,7 +53,88 @@ static struct {
 } keyQueue[KEYQUEUE_SIZE];
 static unsigned keyHead, keyTail;
 static int mouseDx, mouseDy;
-static BOOL windowActive = TRUE;
+static volatile BOOL windowActive = TRUE;
+
+// the input handler's state: the counts it has added up since the last
+// QG_GetMouseMove (read and cleared under Forbid: the handler runs in
+// input.device's task)
+static volatile LONG rawDx, rawDy;
+static struct MsgPort *inputPort;
+static struct IOStdReq *inputReq;
+static struct Interrupt inputHandler;
+static BOOL inputHandlerOn;
+static int mouseRaw = 1;
+
+static struct InputEvent *mouseHandler(__reg("a0") struct InputEvent *events, __reg("a1") APTR data)
+{
+  struct InputEvent *ev;
+
+  (void)data;
+  if(windowActive) {
+    for(ev = events; ev != NULL; ev = ev->ie_NextEvent) {
+      if(ev->ie_Class == IECLASS_RAWMOUSE && (ev->ie_Qualifier & IEQUALIFIER_RELATIVEMOUSE)) {
+        rawDx += ev->ie_X;
+        rawDy += ev->ie_Y;
+      }
+    }
+  }
+  return events;                        // everything goes on to Intuition
+}
+
+void qgInputHandlerStart(void)
+{
+  if(inputHandlerOn) {
+    return;
+  }
+  inputPort = CreateMsgPort();
+  if(inputPort == NULL) {
+    return;
+  }
+  inputReq = (struct IOStdReq *)CreateIORequest(inputPort, sizeof(struct IOStdReq));
+  if(inputReq == NULL || OpenDevice("input.device", 0, (struct IORequest *)inputReq, 0) != 0) {
+    if(inputReq != NULL) {
+      DeleteIORequest((struct IORequest *)inputReq);
+      inputReq = NULL;
+    }
+    DeleteMsgPort(inputPort);
+    inputPort = NULL;
+    return;
+  }
+  inputHandler.is_Node.ln_Type = NT_INTERRUPT;
+  inputHandler.is_Node.ln_Pri = 51;
+  inputHandler.is_Node.ln_Name = "WarpQuake mouse";
+  inputHandler.is_Data = NULL;
+  inputHandler.is_Code = (void (*)())mouseHandler;
+  inputReq->io_Command = IND_ADDHANDLER;
+  inputReq->io_Data = &inputHandler;
+  DoIO((struct IORequest *)inputReq);
+  rawDx = rawDy = 0;
+  inputHandlerOn = TRUE;
+}
+
+void qgInputHandlerStop(void)
+{
+  if(inputHandlerOn) {
+    inputReq->io_Command = IND_REMHANDLER;
+    inputReq->io_Data = &inputHandler;
+    DoIO((struct IORequest *)inputReq);
+    inputHandlerOn = FALSE;
+  }
+  if(inputReq != NULL) {
+    CloseDevice((struct IORequest *)inputReq);
+    DeleteIORequest((struct IORequest *)inputReq);
+    inputReq = NULL;
+  }
+  if(inputPort != NULL) {
+    DeleteMsgPort(inputPort);
+    inputPort = NULL;
+  }
+}
+
+void QG_SetMouseMode(int raw)
+{
+  mouseRaw = raw;
+}
 
 static void queueKey(int key, int down)
 {
@@ -138,6 +230,15 @@ int QG_GetKey(int *down, int *key)
 
 void QG_GetMouseMove(int *x, int *y)
 {
+  if(mouseRaw && inputHandlerOn) {
+    Forbid();
+    *x = rawDx;
+    *y = rawDy;
+    rawDx = rawDy = 0;
+    Permit();
+    mouseDx = mouseDy = 0;
+    return;
+  }
   *x = mouseDx;
   *y = mouseDy;
   mouseDx = mouseDy = 0;

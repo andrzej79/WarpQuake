@@ -13,6 +13,8 @@ void qgPrintf(const char *fmt, ...);
 
 // amiga_input.c
 void qgInputReset(void);
+void qgInputHandlerStart(void);
+void qgInputHandlerStop(void);
 
 // move16.s: both pointers 16-byte aligned
 void qgMove16Copy(const void *src, void *dst, ULONG bytes);       // bytes % 64 == 0

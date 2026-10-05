@@ -32,6 +32,12 @@ enum _ControlList
 };
 
 float	mouse_x, mouse_y;
+// warpQuake: WinQuake's mouse filter (the average of this frame's movement
+// and the last one's), which quakegeneric dropped; and the mouse source
+cvar_t	m_filter = {"m_filter", "0", true};
+cvar_t	in_rawmouse = {"in_rawmouse", "1", true};
+static float	old_mouse_x, old_mouse_y;
+static int		mousemode = -1;
 cvar_t	in_joystick = {"joystick","0", true};
 cvar_t	joy_advanced = {"joyadvanced", "0"};
 cvar_t	joy_advaxisx = {"joyadvaxisx", "0"};
@@ -59,6 +65,8 @@ void Joy_AdvancedUpdate_f (void);
 void IN_Init (void)
 {
 	Cvar_RegisterVariable (&in_joystick);
+	Cvar_RegisterVariable (&m_filter);
+	Cvar_RegisterVariable (&in_rawmouse);
 	Cvar_RegisterVariable (&joy_advanced);
 	Cvar_RegisterVariable (&joy_advaxisx);
 	Cvar_RegisterVariable (&joy_advaxisy);
@@ -98,10 +106,26 @@ void IN_MouseMove (usercmd_t *cmd)
 {
 	int		mx, my;
 
+	if ((int)in_rawmouse.value != mousemode)
+	{
+		mousemode = (int)in_rawmouse.value;
+		QG_SetMouseMode (mousemode);
+	}
+
 	QG_GetMouseMove(&mx, &my);
 
-	mouse_x = mx;
-	mouse_y = my;
+	if (m_filter.value)
+	{
+		mouse_x = (mx + old_mouse_x) * 0.5;
+		mouse_y = (my + old_mouse_y) * 0.5;
+	}
+	else
+	{
+		mouse_x = mx;
+		mouse_y = my;
+	}
+	old_mouse_x = mx;
+	old_mouse_y = my;
 
 	mouse_x *= sensitivity.value;
 	mouse_y *= sensitivity.value;

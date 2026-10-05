@@ -117,6 +117,13 @@ which is handy in benchmark scripts. The engine renders at the mode's full size.
 | `-headless` | no screen at all; used for vamos runs |
 | `+<command>` | any console command, e.g. `+timedemo demo1` |
 
+**Mouse.** By default the mouse is read from an input handler: the raw counts, neither
+accelerated nor ever dropped. Intuition's mouse-move messages, the old source, are accelerated
+by the Input preferences and are held back while the window has five unread, which a fast USB
+mouse can reach within one frame. `in_rawmouse 0` goes back to them. `m_filter 1` averages
+each frame's movement with the last one's (WinQuake's filter). The mouse speed is then
+`sensitivity` alone; both settings are saved in the config.
+
 The console is on the key left of `1`. Esc opens the menu.
 
 Cvar `vid_blit` (saved in config.cfg) picks how a frame reaches the screen. `0` uses

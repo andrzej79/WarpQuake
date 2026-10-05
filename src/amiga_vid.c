@@ -268,6 +268,7 @@ void QG_Init(void)
 
   SetRast(qgWindow->RPort, 0);
   qgInputReset();
+  qgInputHandlerStart();
   updateInfo();
   qgPrintf("Video: mode 0x%08lx %dx%d\n", modeId, vidWidth, vidHeight);
 }
@@ -275,6 +276,7 @@ void QG_Init(void)
 // Also the atexit() cleanup: safe to call twice, and with nothing open.
 void QG_Quit(void)
 {
+  qgInputHandlerStop();
   if(qgWindow != NULL) {
     ClearPointer(qgWindow);
     CloseWindow(qgWindow);

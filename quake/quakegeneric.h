@@ -49,6 +49,9 @@ void QG_DrawFrameRows(void *pixels, int y, int rows);
 void QG_SetPalette(unsigned char palette[768]);
 int QG_GetKey(int *down, int *key);
 void QG_GetMouseMove(int *x, int *y);
+// warpQuake: 1 = raw mouse counts (an input handler), 0 = the window's
+// (accelerated) mouse move events
+void QG_SetMouseMode(int raw);
 void QG_GetJoyAxes(float *axes);
 
 // warpQuake: the rest of the OS the engine needs, so that no AmigaOS header
