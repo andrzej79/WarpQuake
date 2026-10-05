@@ -189,6 +189,20 @@ tools/wprof.py temp/WarpQuake.wprf build/WarpQuake_sym.map
 matches the uploaded `build/WarpQuake`, as long as both come from the same build. vbcc leaves
 static functions nameless, so their time lands on the global function before them.
 
+**Profiling another program** (for comparisons): `make attach` builds `build/WQAttach`
+(`make ftp-attach` uploads it). Start it first, then the program in another Shell:
+
+```
+WQAttach CMD=quake060_cb TASKS="Quake Render Process,Quake Color Process,Quake Sound Process" SECONDS=120 TO=RAM:cb.watt
+tools/amiget.py ram:cb.watt
+tools/wattach.py temp/cb.watt <the program's executable> --disasm 10
+```
+
+It waits for a Shell process running CMD, records where its hunks were loaded, and samples that
+process and the named tasks (a program's helper processes run its code too) at about 1 kHz until
+the program exits. `wattach.py` finds the PC slot, ranks the hottest code ranges per task and
+disassembles them (capstone) for reading. There are no symbols, so ranges stand in for functions.
+
 **Checking that an optimisation draws the same pixels** (`-crc`):
 
 ```

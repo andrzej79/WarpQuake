@@ -21,7 +21,17 @@ TS_WAIT = 4
 
 def load_map(path):
     files, syms, code_size = [], [], None
+    # vlink lists symbols per section ("Symbols of CODE:", "Symbols of DATA:"...)
+    # with section-relative offsets: only CODE's may be matched against a PC, or a
+    # data symbol at the same offset steals the attribution.
+    in_code_syms = False
     for line in open(path, errors='replace'):
+        m = re.match(r'Symbols of (\S+):', line)
+        if m:
+            in_code_syms = (m.group(1) == 'CODE')
+            continue
+        if re.match(r'Linker symbols:', line):
+            in_code_syms = False
         m = re.match(r'\s+[0-9a-f]{8} CODE\s+\(size ([0-9a-f]+)', line)
         if m and code_size is None:
             code_size = int(m.group(1), 16)
@@ -31,7 +41,7 @@ def load_map(path):
             files.append((int(m.group(1), 16), int(m.group(2), 16), m.group(3)))
             continue
         m = re.match(r'\s+0x([0-9a-f]+) (\S+):', line)
-        if m and not re.match(r'^l\d+$', m.group(2)):
+        if m and in_code_syms and not re.match(r'^l\d+$', m.group(2)):
             syms.append((int(m.group(1), 16), m.group(2)))
     files.sort()
     syms.sort()

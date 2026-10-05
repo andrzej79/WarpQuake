@@ -36,7 +36,9 @@ extern void M_Menu_Quit_f (void);
 
 void Host_Quit_f (void)
 {
-	if (key_dest != key_console && cls.state != ca_dedicated)
+	// warpQuake: not under -headless, where nobody can answer the menu's
+	// "really quit?" (a remote +quit then hung for good)
+	if (key_dest != key_console && cls.state != ca_dedicated && !COM_CheckParm ("-headless"))
 	{
 		M_Menu_Quit_f ();
 		return;

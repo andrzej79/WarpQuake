@@ -55,7 +55,7 @@ APP_OBJS    := $(patsubst src/%.c,$(OBJ_DIR)/src/%.o,$(APP_SRC))
 APP_OBJS    += $(patsubst src/%.s,$(OBJ_DIR)/src/%.o,$(wildcard src/*.s))
 OBJS        := $(APP_OBJS) $(ENGINE_OBJS)
 
-.PHONY: all app prof clean distclean install ftp ftp-data
+.PHONY: all app prof clean distclean install ftp ftp-data attach ftp-attach remote ftp-remote
 
 # Like warpPDFViewer, 'all' does not clean first; 'make -j8' is worth it.
 all: app install
@@ -98,6 +98,31 @@ VBCC_LIB := $(VBCC)/targets/m68k-amigaos/lib
 prof: $(OBJS)
 	vlink -bamigahunk -Bstatic -Cvbcc -nostdlib -mrel $(VBCC_LIB)/startup.o $(OBJS) \
 		-L$(VBCC_LIB) -lamiga -ldebug $(MATHLIB) -lvc -M$(BUILD_DIR)/$(TARGET)_sym.map -o $(BUILD_DIR)/$(TARGET)_sym
+
+# WQAttach: samples another program's PCs (tools/wattach.py reads its files),
+# to compare WarpQuake with other ports.  Not part of WarpQuake itself.
+ATTACH_BIN := $(BUILD_DIR)/WQAttach
+attach: $(ATTACH_BIN)
+$(ATTACH_BIN): attach/wqattach.c
+	@$(MKDIR) $(BUILD_DIR)
+	$(CC) +aos68k_std -cpu=68020 -c99 -O1 -dontwarn=153 -I$(NDK_INC_C) $< -lamiga -o $@
+
+# WQRemote: runs CLI commands sent by tools/amirun.py (benchmark runs from
+# the host).  A development tool, not part of WarpQuake; see its header.
+# bsdsocket's headers ship in the Roadshow tree beside the NDK, not in it.
+REMOTE_BIN := $(BUILD_DIR)/WQRemote
+NET_INC    := $(SDK_DIR)/NDK3.2R4/SANA+RoadshowTCP-IP/netinclude
+remote: $(REMOTE_BIN)
+
+$(REMOTE_BIN): remote/wqremote.c
+	@$(MKDIR) $(BUILD_DIR)
+	$(CC) +aos68k_std -cpu=68020 -c99 -O1 -dontwarn=153 -I$(NDK_INC_C) -I$(NET_INC) $< -lamiga -o $@
+
+ftp-remote: remote
+	$(FTP_ENV) python3 ../utils/PyFtpCopy/ftpCopy.py -s $(REMOTE_BIN) -d $(FTP_DIR)
+
+ftp-attach: attach
+	$(FTP_ENV) python3 ../utils/PyFtpCopy/ftpCopy.py -s $(ATTACH_BIN) -d $(FTP_DIR)
 
 clean:
 	@echo '------  CLEAN  ------'
