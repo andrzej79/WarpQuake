@@ -1,0 +1,100 @@
+Short:        Fast Quake for 68060 + RTG, 8/16 bpp, AHI sound
+Author:       andrzej79
+Type:         game/shoot
+Version:      0.9b
+Architecture: m68k-amigaos >= 3.1
+Requires:     68060 with FPU, Picasso96, AHI v4 (for sound)
+
+WarpQuake 0.9b
+==============
+
+Quake for AmigaOS 3.x on a 68060 with an RTG (Picasso96) screen. It was
+written for CS-Lab's Warp accelerators and is fast on any 68060.
+
+It is id Software's own software renderer, kept bit-exact with id's C code,
+with its hot paths rewritten in 68060 assembly. timedemo demo1 at 320x200 on
+a 68060 at 108 MHz runs at 26.3 fps at 8 bpp and 23.7 fps at 16 bpp (without
+sound).
+
+Features
+--------
+
+- 8-bit CLUT or 16-bit RGB screens, any mode from 320x200 to 1280x1024,
+  switchable in the game (Options / Video Options). At 16 bpp the lighting
+  is computed per colour instead of rounded to the 256-colour palette, and
+  water tints blue.
+- Sound through AHI, any audio mode, 11025 to 44100 Hz (Options / Sound
+  Options).
+- Raw mouse input: neither accelerated nor dropped.
+
+Requirements
+------------
+
+- A 68060 with its FPU (and 68060.library).
+- AmigaOS 3.1 or later.
+- Picasso96 (RTG) with 8-bit and/or 16-bit screen modes.
+- About 32 MB of free fast RAM (16 MB for the game, plus the screen and the
+  surface cache).
+- AHI v4 for sound (optional).
+- Quake's game data, which is not included: pak0.pak from the shareware or
+  registered version, and pak1.pak from the registered version.
+
+Installation
+------------
+
+Copy the WarpQuake drawer anywhere, then copy your Quake data into an id1
+drawer inside it:
+
+    WarpQuake/WarpQuake
+    WarpQuake/id1/pak0.pak
+    WarpQuake/id1/pak1.pak      (registered version)
+
+Start it from its icon or from a Shell. On the first start an ASL requester
+asks for the screen mode; the choice is saved (WarpQuake.mode) and can be
+changed in the game, or asked again with -asl.
+
+Options (Shell)
+---------------
+
+    -asl                    choose the screen mode again
+    -bpp 8 | -bpp 16        only modes of that depth
+    -width W -height H      the mode nearest W x H
+    -modeid 0x...           this mode
+    -mem <MB>               game memory, 16 by default
+    -nosound                no sound
+    -ahireq                 choose the AHI mode with AHI's requester
+    -ahimode 0x... -ahifreq <Hz>   AHI mode and rate for this run
+    +<command>              any console command, e.g. +timedemo demo1
+
+Console variables (saved in config.cfg)
+---------------------------------------
+
+    vid_blit 0|1|2          how frames reach the screen: 0 = OS call,
+                            1 = lock + copy, 2 = lock + MOVE16 (fastest on
+                            a Warp board)
+    in_rawmouse 1           raw mouse counts (0: Intuition's mouse events)
+    m_filter 0              1 averages each frame's mouse movement with
+                            the last one's
+    v_rgbflash 1            16 bpp: damage and bonus screen flashes (0: off,
+                            a little faster)
+    v_watercolor ""         the under-water tint as R,G,B[,strength], e.g.
+                            130,80,50 for id's brown water
+
+The console is on the key left of 1; Esc opens the menu.
+
+Not yet
+-------
+
+No networking, no CD audio or music. screenshot works at 8 bpp only.
+
+License and source
+------------------
+
+WarpQuake is free software under the GNU General Public License version 2,
+as id Software's Quake source is; see LICENSE. The source code is at
+
+    https://github.com/andrzej79/WarpQuake
+
+The engine is id Software's WinQuake, by way of erysdren's quakegeneric.
+Quake is a trademark of id Software. The game data is id's and is not part
+of WarpQuake.

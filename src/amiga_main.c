@@ -28,7 +28,7 @@
 // nested block its own stack slot: the default 4 KB would not last a frame.
 size_t __stack = 512 * 1024;
 static const char stackCookie[] = "$STACK: 524288";
-#define VERSION_STRING "WarpQuake 0.2 (4.10.2026)"
+#define VERSION_STRING "WarpQuake 0.9b (5.10.2026)"
 static const char versionTag[] = "$VER: " VERSION_STRING;
 
 struct IntuitionBase *IntuitionBase = NULL;

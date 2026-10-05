@@ -67,7 +67,7 @@ APP_OBJS    := $(patsubst src/%.c,$(OBJ_DIR)/src/%.o,$(APP_SRC))
 APP_OBJS    += $(patsubst src/%.s,$(OBJ_DIR)/src/%.o,$(wildcard src/*.s))
 OBJS        := $(APP_OBJS) $(ENGINE_OBJS)
 
-.PHONY: all app prof clean distclean install ftp ftp-data
+.PHONY: all app prof clean distclean install ftp ftp-data dist
 
 # 'all' does not clean first; 'make -j8' is worth it.
 all: app install
@@ -114,6 +114,22 @@ VBCC_LIB := $(VBCC)/targets/m68k-amigaos/lib
 prof: $(OBJS)
 	vlink -bamigahunk -Bstatic -Cvbcc -nostdlib -mrel $(VBCC_LIB)/startup.o $(OBJS) \
 		-L$(VBCC_LIB) -lamiga -ldebug $(MATHLIB) -lvc -M$(BUILD_DIR)/$(TARGET)_sym.map -o $(BUILD_DIR)/$(TARGET)_sym
+
+# A release: build/dist/WarpQuake-<version>.lha and .zip, each holding a
+# WarpQuake drawer (program, icon, readme, LICENSE), plus the readme beside
+# them (Aminet-style).  The version is the one in $VER (src/amiga_main.c).
+# Needs lha (LHa for UNIX) and zip.
+VERSION  := $(shell sed -n 's/.*VERSION_STRING "WarpQuake \([^ ]*\) .*/\1/p' src/amiga_main.c)
+DIST_DIR := $(BUILD_DIR)/dist
+dist: app
+	@echo '------  DIST $(VERSION)  ------'
+	$(RM) $(DIST_DIR)
+	$(MKDIR) $(DIST_DIR)/WarpQuake
+	cp $(BIN) $(DIST_DIR)/WarpQuake/WarpQuake
+	cp dist/WarpQuake.info dist/WarpQuake.readme LICENSE $(DIST_DIR)/WarpQuake/
+	cd $(DIST_DIR) && lha aq WarpQuake-$(VERSION).lha WarpQuake && zip -qr WarpQuake-$(VERSION).zip WarpQuake
+	cp dist/WarpQuake.readme $(DIST_DIR)/WarpQuake-$(VERSION).readme
+	@ls -l $(DIST_DIR)
 
 clean:
 	@echo '------  CLEAN  ------'
