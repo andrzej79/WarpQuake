@@ -37,8 +37,7 @@ own `id1/pak0.pak` (and `pak1.pak` from the registered version) next to the prog
 - **v2**: optimise what v1 measures (span drawing in asm, surface cache, edge sorting).
   Done: faster than ClickBOOM's port, still bit-exact.
 - **16 bpp, sound, menus**: done.
-- **Next**: the fastest Amiga Quake. Offload stages to the Warp board's ARM or FPGA where the
-  transfer costs less than the 68060 time it saves.
+- **Next**: hardware acceleration using the FPGA and ARM on CS-Lab's Warp boards.
 
 ## Building
 
