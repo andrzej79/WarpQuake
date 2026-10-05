@@ -21,8 +21,11 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 void (*vid_menudrawfn)(void);
 void (*vid_menukeyfn)(int key);
+// warpQuake: the Sound Options menu (snd_qg.c sets these when sound is up)
+void (*snd_menudrawfn)(void);
+void (*snd_menukeyfn)(int key);
 
-enum {m_none, m_main, m_singleplayer, m_load, m_save, m_multiplayer, m_setup, m_net, m_options, m_video, m_keys, m_help, m_quit, m_serialconfig, m_modemconfig, m_lanconfig, m_gameoptions, m_search, m_slist} m_state;
+enum {m_none, m_main, m_singleplayer, m_load, m_save, m_multiplayer, m_setup, m_net, m_options, m_video, m_sound, m_keys, m_help, m_quit, m_serialconfig, m_modemconfig, m_lanconfig, m_gameoptions, m_search, m_slist} m_state;
 
 void M_Menu_Main_f (void);
 	void M_Menu_SinglePlayer_f (void);
@@ -34,6 +37,7 @@ void M_Menu_Main_f (void);
 	void M_Menu_Options_f (void);
 		void M_Menu_Keys_f (void);
 		void M_Menu_Video_f (void);
+		void M_Menu_Sound_f (void);
 	void M_Menu_Help_f (void);
 	void M_Menu_Quit_f (void);
 void M_Menu_SerialConfig_f (void);
@@ -1024,7 +1028,7 @@ again:
 //=============================================================================
 /* OPTIONS MENU */
 
-#define	OPTIONS_ITEMS	13
+#define	OPTIONS_ITEMS	14			// warpQuake: + Sound Options
 
 #define	SLIDER_RANGE	10
 
@@ -1189,6 +1193,8 @@ void M_Options_Draw (void)
 
 	if (vid_menudrawfn)
 		M_Print (16, 128, "         Video Options");
+	if (snd_menudrawfn)
+		M_Print (16, 136, "         Sound Options");
 
 // cursor
 	M_DrawCharacter (200, 32 + options_cursor*8, 12+((int)(realtime*4)&1));
@@ -1219,6 +1225,9 @@ void M_Options_Key (int k)
 			break;
 		case 12:
 			M_Menu_Video_f ();
+			break;
+		case 13:
+			M_Menu_Sound_f ();
 			break;
 		default:
 			M_AdjustSliders (1);
@@ -1253,6 +1262,13 @@ void M_Options_Key (int k)
 	{
 		if (k == K_UPARROW)
 			options_cursor = 11;
+		else
+			options_cursor = snd_menudrawfn ? 13 : 0;
+	}
+	if (options_cursor == 13 && snd_menudrawfn == NULL)
+	{
+		if (k == K_UPARROW)
+			options_cursor = vid_menudrawfn ? 12 : 11;
 		else
 			options_cursor = 0;
 	}
@@ -1450,6 +1466,18 @@ void M_Keys_Key (int k)
 		M_UnbindCommand (bindnames[keys_cursor][0]);
 		break;
 	}
+}
+
+//=============================================================================
+/* SOUND MENU (warpQuake: drawn and run by snd_qg.c) */
+
+void M_Menu_Sound_f (void)
+{
+	if (!snd_menudrawfn)
+		return;			// -nosound
+	key_dest = key_menu;
+	m_state = m_sound;
+	m_entersound = true;
 }
 
 //=============================================================================
@@ -2935,6 +2963,7 @@ void M_Init (void)
 	Cmd_AddCommand ("menu_options", M_Menu_Options_f);
 	Cmd_AddCommand ("menu_keys", M_Menu_Keys_f);
 	Cmd_AddCommand ("menu_video", M_Menu_Video_f);
+	Cmd_AddCommand ("menu_sound", M_Menu_Sound_f);
 	Cmd_AddCommand ("help", M_Menu_Help_f);
 	Cmd_AddCommand ("menu_quit", M_Menu_Quit_f);
 }
@@ -3009,6 +3038,10 @@ void M_Draw (void)
 
 	case m_video:
 		M_Video_Draw ();
+		break;
+
+	case m_sound:
+		(*snd_menudrawfn) ();
 		break;
 
 	case m_help:
@@ -3101,6 +3134,10 @@ void M_Keydown (int key)
 
 	case m_video:
 		M_Video_Key (key);
+		return;
+
+	case m_sound:
+		(*snd_menukeyfn) (key);
 		return;
 
 	case m_help:

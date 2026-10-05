@@ -514,6 +514,11 @@ int QG_SetMode(unsigned long id)
   return 0;
 }
 
+struct Screen *qgGetScreen(void)
+{
+  return qgScreen;
+}
+
 int QG_GetPixelFormat(void)
 {
   return pixFormat;

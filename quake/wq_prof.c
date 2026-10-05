@@ -18,6 +18,8 @@ qboolean		wqp_phases;
 static unsigned long	crcTable[256];
 static unsigned long	crcAll;         // CRC of the frames' CRCs
 static unsigned long	crcFrames;
+static unsigned long	crcSound;       // CRC of the mixed sound (-sndtest)
+static unsigned long	crcSoundBytes;
 static FILE				*crcFile;       // -crcfile: one line per frame
 static unsigned long	crcDump;        // -crcdump <n>: frame n to a file
 
@@ -90,6 +92,14 @@ static unsigned long CRCUpdate (unsigned long crc, const unsigned char *p, int n
 	return crc;
 }
 
+// The sound mixer's output, block by block as it is written (snd_mix.c),
+// for checking a mixer change under -sndtest -crc.
+void WQP_SoundCRC (const void *buf, int bytes)
+{
+	crcSound = CRCUpdate (crcSound, buf, bytes);
+	crcSoundBytes += bytes;
+}
+
 void WQP_FrameCRC (const unsigned char *buf, int width, int height, int rowbytes)
 {
 	unsigned long	crc = 0xFFFFFFFFUL;
@@ -133,6 +143,8 @@ static void Reset (void)
 	}
 	crcAll = 0xFFFFFFFFUL;
 	crcFrames = 0;
+	crcSound = 0xFFFFFFFFUL;
+	crcSoundBytes = 0;
 	if (crcFile)
 		rewind (crcFile);
 }
@@ -257,6 +269,8 @@ static void Report (const char *logpath)
 	if (wqp_crcon)
 		Out (f, "-- frame CRC-32: %08lx over %lu frames%s\n", crcAll ^ 0xFFFFFFFFUL, crcFrames,
 				host_framerate.value > 0 ? "" : " (host_framerate is 0: not reproducible)");
+	if (wqp_crcon && crcSoundBytes)
+		Out (f, "-- sound CRC-32: %08lx over %lu bytes\n", crcSound ^ 0xFFFFFFFFUL, crcSoundBytes);
 
 	if (f)
 	{

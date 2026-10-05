@@ -218,25 +218,33 @@ ClampEnd	macro
 .ok\@
 	endm
 
-PIXEL_SIZE	equ	18		; bytes per Pixel expansion, both variants
+PIXEL_SIZE	equ	20		; bytes per Pixel expansion, both variants
 
 ; Pixel cur, next: draw the pixel at offset cur and compute the next pixel's
 ; offset into next - the s fraction's carry through ADDX, the t fraction's
 ; as a 0 / cachewidth mask (SUBX gives 0 or -1).  The texel fetch sits after
 ; the ADDX, so cur was last written four instructions earlier and the 68060
 ; does not stall on it as an index; the independent halves (s carry, t
-; carry, fetch) give the two pipelines pairs to issue together.
+; carry, fetch) give the two pipelines pairs to issue together.  The texel
+; goes through d7 (free in the pixel loops) rather than memory to memory: a
+; MOVE with two memory operands issues alone, and the store, two
+; instructions after the load, pairs with the ALU work around it.
 Pixel	macro
 	move.l	\1,\2
 	add.l	a4,d2
 	addx.l	d4,\2
 	if PIX16
-	move.w	(a5,\1.l*2),(a1)+		; same size as the move.b: PIXEL_SIZE holds
+	move.w	(a5,\1.l*2),d7
 	else
-	move.b	(a5,\1.l),(a1)+
+	move.b	(a5,\1.l),d7
 	endif
 	add.l	a6,d3
 	subx.l	d6,d6
+	if PIX16
+	move.w	d7,(a1)+
+	else
+	move.b	d7,(a1)+
+	endif
 	and.l	d5,d6
 	add.l	d6,\2
 	endm

@@ -20,6 +20,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 // snd_mix.c -- portable code to mix sounds for snd_dma.c
 
 #include "quakedef.h"
+#include "wq_prof.h"
 
 #ifdef _WIN32
 #include "winquake.h"
@@ -35,7 +36,7 @@ short	*snd_out;
 
 void Snd_WriteLinearBlastStereo16 (void);
 
-#if	!id386
+#if	!id386 && !WQ_ASM	// warpQuake: snd_mix060.s
 void Snd_WriteLinearBlastStereo16 (void)
 {
 	int		i;
@@ -125,6 +126,8 @@ void S_TransferStereo16 (int endtime)
 
 	// write a linear blast of samples
 		Snd_WriteLinearBlastStereo16 ();
+		if (wqp_crcon)		// warpQuake: -sndtest -crc checks the mixer
+			WQP_SoundCRC (snd_out, snd_linear_count * 2);
 
 		snd_p += snd_linear_count;
 		lpaintedtime += (snd_linear_count>>1);
@@ -343,6 +346,7 @@ void SND_InitScaletable (void)
 
 #if	!id386
 
+#if !WQ_ASM	// snd_mix060.s
 void SND_PaintChannelFrom8 (channel_t *ch, sfxcache_t *sc, int count)
 {
 	int 	data;
@@ -368,6 +372,7 @@ void SND_PaintChannelFrom8 (channel_t *ch, sfxcache_t *sc, int count)
 	
 	ch->pos += count;
 }
+#endif	// !WQ_ASM
 
 #endif	// !id386
 

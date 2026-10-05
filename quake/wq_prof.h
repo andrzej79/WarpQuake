@@ -71,6 +71,7 @@ extern qboolean			wqp_crcon;  // -crc
 
 void WQP_Init (void);           // registers the console commands
 void WQP_FrameCRC (const unsigned char *buf, int width, int height, int rowbytes);
+void WQP_SoundCRC (const void *buf, int bytes);
 void WQP_FrameStart (void);     // runs a reset requested mid-frame
 void WQP_TimedemoCommand (void); // "timedemo" typed: before the demo loads
 void WQP_TimedemoStart (void);  // the timedemo's measured part begins

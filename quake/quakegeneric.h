@@ -92,6 +92,24 @@ unsigned long QG_GetMode(void);         // the mode now open
 // Close the display and open it in mode id, which becomes the saved mode.
 // 0 if that failed (the old mode is open again) or there is no display.
 int QG_SetMode(unsigned long id);
+// Sound output (src/amiga_ahi.c): a ring of 16-bit stereo frames (native,
+// i.e. big-endian, samples) that the platform plays in a loop.  QG_SoundInit
+// returns it, its length in frames (a power of 2) and the rate it plays at,
+// or NULL if there is no sound; QG_SoundPos is the frame being played now.
+void *QG_SoundInit(int *frames, int *rate);
+int QG_SoundPos(void);
+void QG_SoundShutdown(void);
+const char *QG_SoundInfo(void);         // device, mode and rate, for reports
+// The Sound Options menu: the audio modes, and the mode and rate the next
+// QG_SoundInit uses (saved; mode 0 is the device's default mode).
+typedef struct
+{
+	unsigned long	id;
+	char			name[48];
+} qgaudiomode_t;
+int QG_SoundListModes(qgaudiomode_t *modes, int max);
+void QG_SoundGetSettings(unsigned long *mode, int *freq);
+void QG_SoundSetSettings(unsigned long mode, int freq);
 // 16bpp: blend the frame toward r,g,b (0..255) by alpha/256 as it is shown;
 // alpha 0 is off.  The damage and bonus flashes, which an 8-bit screen gets
 // from its palette.

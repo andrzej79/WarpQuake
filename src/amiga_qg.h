@@ -7,6 +7,7 @@
 #include <intuition/intuition.h>
 
 extern struct Window *qgWindow;   // NULL until QG_Init()
+struct Screen *qgGetScreen(void);  // the game's screen, NULL if none (amiga_vid.c)
 
 // amiga_main.c
 void qgPrintf(const char *fmt, ...);

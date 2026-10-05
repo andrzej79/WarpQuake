@@ -29,6 +29,9 @@ INC_FLAGS   := -Iquake -Isrc -I$(NDK_INC_C)
 # pragmas/ are for other compilers; vbcc has its own inline/ stubs).
 P96_INC     := -I../p96_gfx_driver/Picasso96Develop/Include
 DEF_FLAGS   := $(addprefix -D,$(DEFINES)) -DWQ_ASM=$(ASM)
+# AHI's headers (devices/ahi.h) from the repo's AHI SDK, for src/amiga_ahi.c;
+# vbcc has the proto/inline stubs.
+AHI_INC     := -I../warpAHIDriver/ahidev_4.18/AHI/Developer/include/C
 
 # ---- Toolchain ----
 CC      := vc
@@ -68,7 +71,7 @@ $(BIN): $(OBJS)
 
 $(OBJ_DIR)/src/%.o: src/%.c $(wildcard src/*.h)
 	@$(MKDIR) $(@D)
-	$(CC) $(CFLAGS) $(INC_FLAGS) $(P96_INC) $(DEF_FLAGS) -c $< -o $@
+	$(CC) $(CFLAGS) $(INC_FLAGS) $(P96_INC) $(AHI_INC) $(DEF_FLAGS) -c $< -o $@
 
 # Engine objects quietly, the log printed only on failure (as MuPDF's are).
 $(OBJ_DIR)/quake/%.o: quake/%.c $(wildcard quake/*.h)

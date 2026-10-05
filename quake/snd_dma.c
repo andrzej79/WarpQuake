@@ -54,6 +54,9 @@ vec3_t		listener_up;
 vec_t		sound_nominal_clip_dist=1000.0;
 
 int			soundtime;		// sample PAIRS
+// warpQuake: GetSoundtime's, file-level so that S_Restart can set them
+static	int		buffers;
+static	int		oldsamplepos;
 int   		paintedtime; 	// sample PAIRS
 
 
@@ -227,7 +230,9 @@ void S_Init (void)
 		shm->buffer = Hunk_AllocName(1<<16, "shmbuf");
 	}
 
-	Con_Printf ("Sound sampling rate: %i\n", shm->speed);
+	// warpQuake: shm is NULL when there is no sound device (SNDDMA_Init failed)
+	if (shm)
+		Con_Printf ("Sound sampling rate: %i\n", shm->speed);
 
 	// provides a tick sound until washed clean
 
@@ -244,6 +249,46 @@ void S_Init (void)
 // =======================================================================
 // Shutdown sound engine
 // =======================================================================
+
+/*
+================
+S_Restart
+
+warpQuake: the sound device again, with the mode and rate the platform now
+has (the Sound Options menu, snd_restart).  Sounds are resampled to the
+output rate as they load, so the loaded ones are dropped and load again as
+they play.  The mixing timeline goes on where it was: looping and static
+sounds (torches, water) restart, the short ones in flight stop.
+================
+*/
+void S_Restart (void)
+{
+	int		i;
+
+	if (!snd_initialized)
+		return;
+	S_Shutdown ();
+	for (i = 0 ; i < num_sfx ; i++)
+		if (Cache_Check (&known_sfx[i].cache))
+			Cache_Free (&known_sfx[i].cache);
+	S_Startup ();
+	if (!sound_started)
+	{
+		Con_Printf ("Sound: no device\n");
+		return;
+	}
+	// a whole number of the new ring from where the mixing was
+	buffers = paintedtime / (shm->samples / shm->channels);
+	oldsamplepos = 0;
+	paintedtime = soundtime = buffers * (shm->samples / shm->channels);
+	for (i = 0 ; i < total_channels ; i++)
+	{
+		channels[i].pos = 0;			// the old rate's position
+		channels[i].end = paintedtime;	// re-decided at the next paint
+	}
+	S_ClearBuffer ();
+	Con_Printf ("Sound sampling rate: %i\n", shm->speed);
+}
 
 void S_Shutdown(void)
 {
@@ -810,8 +855,6 @@ void S_Update(vec3_t origin, vec3_t forward, vec3_t right, vec3_t up)
 void GetSoundtime(void)
 {
 	int		samplepos;
-	static	int		buffers;
-	static	int		oldsamplepos;
 	int		fullsamples;
 	
 	fullsamples = shm->samples / shm->channels;

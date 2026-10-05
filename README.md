@@ -133,6 +133,15 @@ each frame's movement with the last one's (WinQuake's filter). The mouse speed i
 
 The console is on the key left of `1`. Esc opens the menu.
 
+**Sound** goes out through AHI (`ahi.device` V4). The audio mode and the mixing rate are set in
+Options / Sound Options (AHI's modes on the left, 11025 to 44100 Hz on the right; the change
+is heard at once), with `-ahireq` (AHI's mode requester), `-ahimode 0x<id>` / `-ahifreq <Hz>` for
+one run, or from the console (`snd_modelist`, `snd_mode 0x<id> [rate]`, `snd_rate <Hz>`,
+`snd_restart`). The choice is saved in `PROGDIR:WarpQuake.audio`. The default is AHI's default
+mode (its preferences) at 22050 Hz. `-nosound` turns sound off. On the 060 at 320x200 sound
+costs about 1.9 ms a frame at 11025 Hz, 2.6 ms at 22050 and 4.7 ms at 44100, a little over
+half of it Quake's mixer, the rest AHI and its driver.
+
 **16 bpp.** On a 16-bit RTG mode (5-6-5 or 5-5-5, either byte order) the renderer draws RGB
 pixels instead of palette indexes. Lighting is computed per colour rather than rounded to the
 nearest of the 256 palette entries, so it is smooth and keeps its hue; that is where 8-bit
@@ -258,6 +267,12 @@ for `r_zcover` 0 or 1:
 | demo3 | `53966e81` | `40d6596e` |
 
 (With the particle limit at 1536 and the world-vertex projection cache; see below.)
+
+These are silent runs (no sound device under `-headless`). The mixer is checked with
+`-sndtest`, a ring of its own whose play position follows the frame count: with `-crc` the
+report adds a CRC of every block mixed, which must match between `ASM=1` and `ASM=0` (demo1
+`ce5bb522`, demo2 `b7a22f4d`). Sound changes the frame CRCs, because each sound starts at a
+random offset and so moves the particles' `rand()` sequence.
 
 **16 bpp** (`-bpp 16`, headless: 5-6-5) is checked the same way with `-rgbtest`: the colour
 tables then hold the 8-bit renderer's palette indexes, so the low byte of each 16-bit pixel is

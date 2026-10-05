@@ -92,6 +92,7 @@ typedef struct
 void S_Init (void);
 void S_Startup (void);
 void S_Shutdown (void);
+void S_Restart (void);		// warpQuake: the device again, new mode/rate
 void S_StartSound (int entnum, int entchannel, sfx_t *sfx, vec3_t origin, float fvol,  float attenuation);
 void S_StaticSound (sfx_t *sfx, vec3_t origin, float vol, float attenuation);
 void S_StopSound (int entnum, int entchannel);

@@ -211,7 +211,7 @@ static void VID_SetMode_f (void)
 	{
 		if (a[0] == '0' && (a[1] == 'x' || a[1] == 'X'))
 		{
-			if (strtoul (a, NULL, 16) == modes[i].id)
+			if (strtoul (a, NULL, 0) == modes[i].id)
 				break;
 		}
 		else if (sscanf (a, "%dx%dx%d", &w, &h, &b) == 3
