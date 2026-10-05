@@ -21,6 +21,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 #include <math.h>
 #include "quakedef.h"
+#include <string.h>
 
 void Sys_Error (char *error, ...);
 
@@ -273,7 +274,49 @@ if (sides == 0)
 	return sides;
 }
 
+/*
+warpQuake: AngleVectors' results, cached by their exact input.  The 68060
+has no sine in hardware and libm's is slow, and the same angles come back
+many times a frame: the z-coverage pass (d_zcover.c) and then the renderer
+transform every model with its angles, and most entities do not turn from
+one frame to the next.  The cached vectors are the floats the C stored, so
+the result is unchanged.
+*/
+#define AV_CACHE	64
+
+typedef struct {
+	unsigned long	key[3];		// the angles' bit patterns
+	vec3_t			forward, right, up;
+	qboolean		valid;
+} avcache_t;
+
+static avcache_t	avcache[AV_CACHE];
+
+static void AngleVectors_ (vec3_t angles, vec3_t forward, vec3_t right, vec3_t up);
+
 void AngleVectors (vec3_t angles, vec3_t forward, vec3_t right, vec3_t up)
+{
+	unsigned long	k0, k1, k2;
+	avcache_t		*c;
+
+	memcpy (&k0, &angles[0], 4);
+	memcpy (&k1, &angles[1], 4);
+	memcpy (&k2, &angles[2], 4);
+	c = &avcache[((k0 >> 16) ^ (k0 >> 3) ^ (k1 >> 13) ^ (k2 >> 7)) & (AV_CACHE - 1)];
+	if (!c->valid || c->key[0] != k0 || c->key[1] != k1 || c->key[2] != k2)
+	{
+		AngleVectors_ (angles, c->forward, c->right, c->up);
+		c->key[0] = k0;
+		c->key[1] = k1;
+		c->key[2] = k2;
+		c->valid = true;
+	}
+	VectorCopy (c->forward, forward);
+	VectorCopy (c->right, right);
+	VectorCopy (c->up, up);
+}
+
+static void AngleVectors_ (vec3_t angles, vec3_t forward, vec3_t right, vec3_t up)
 {
 	float		angle;
 	float		sr, sp, sy, cr, cp, cy;

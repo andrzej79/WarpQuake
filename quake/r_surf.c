@@ -53,6 +53,7 @@ static void	(*surfmiptable[4])(void) = {
 
 unsigned		blocklights[18*18];
 
+#if !WQ_ASM	// r_dlight060.s
 /*
 ===============
 R_AddDynamicLights
@@ -121,6 +122,7 @@ void R_AddDynamicLights (void)
 		}
 	}
 }
+#endif	// !WQ_ASM
 
 /*
 ===============
@@ -153,19 +155,28 @@ void R_BuildLightMap (void)
 		return;
 	}
 
-// clear to ambient
-	for (i=0 ; i<size ; i++)
-		blocklights[i] = r_refdef.ambientlight<<8;
+// warpQuake: the loops below walk pointers; vbcc reloaded blocklights'
+// address and rebuilt the index for every sample of the indexed versions
 
+// clear to ambient
+	{
+		unsigned	*bl = blocklights, amb = r_refdef.ambientlight<<8;
+
+		for (i=size ; i>0 ; i--)
+			*bl++ = amb;
+	}
 
 // add all the lightmaps
 	if (lightmap)
 		for (maps = 0 ; maps < MAXLIGHTMAPS && surf->styles[maps] != 255 ;
 			 maps++)
 		{
+			unsigned	*bl = blocklights;
+			byte		*lm = lightmap;
+
 			scale = r_drawsurf.lightadj[maps];	// 8.8 fraction		
-			for (i=0 ; i<size ; i++)
-				blocklights[i] += lightmap[i] * scale;
+			for (i=size ; i>0 ; i--)
+				*bl++ += *lm++ * scale;
 			lightmap += size;	// skip to next lightmap
 		}
 
@@ -174,14 +185,18 @@ void R_BuildLightMap (void)
 		R_AddDynamicLights ();
 
 // bound, invert, and shift
-	for (i=0 ; i<size ; i++)
 	{
-		t = (255*256 - (int)blocklights[i]) >> (8 - VID_CBITS);
+		unsigned	*bl = blocklights;
 
-		if (t < (1 << 6))
-			t = (1 << 6);
+		for (i=size ; i>0 ; i--, bl++)
+		{
+			t = (255*256 - (int)*bl) >> (8 - VID_CBITS);
 
-		blocklights[i] = t;
+			if (t < (1 << 6))
+				t = (1 << 6);
+
+			*bl = t;
+		}
 	}
 }
 
@@ -305,6 +320,8 @@ void R_DrawSurface (void)
 }
 
 //=============================================================================
+
+#if !WQ_ASM	// r_surf060.s has all four block drawers
 
 /*
 ================
@@ -504,6 +521,8 @@ void R_DrawSurfaceBlock8_mip3 (void)
 			psource -= r_stepback;
 	}
 }
+
+#endif	// !WQ_ASM
 
 //============================================================================
 

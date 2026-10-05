@@ -99,7 +99,7 @@ typedef struct {
 	int		remainder;
 } adivtab_t;
 
-static adivtab_t	adivtab[32*32] = {
+adivtab_t	adivtab[32*32] = {	// warpQuake: not static, d_raster060.s
 #include "adivtab.h"
 };
 
@@ -235,6 +235,7 @@ void D_DrawSubdiv (void)
 }
 
 
+#if !WQ_ASM	// d_raster060.s
 /*
 ================
 D_DrawNonSubdiv
@@ -301,8 +302,10 @@ void D_DrawNonSubdiv (void)
 		D_RasterizeAliasPolySmooth ();
 	}
 }
+#endif	// !WQ_ASM
 
 
+#if !WQ_ASM	// d_polyse060.s
 /*
 ================
 D_PolysetRecursiveTriangle
@@ -385,6 +388,8 @@ nodraw:
 	D_PolysetRecursiveTriangle (lp3, new, lp2);
 }
 
+#endif	// !WQ_ASM
+
 /*
 ================
 D_PolysetUpdateTables
@@ -406,6 +411,7 @@ void D_PolysetUpdateTables (void)
 	}
 }
 
+#if !WQ_ASM	// d_polyse060.s
 /*
 ===================
 D_PolysetScanLeftEdge
@@ -472,6 +478,9 @@ void D_PolysetScanLeftEdge (int height)
 	} while (--height);
 }
 
+#endif	// !WQ_ASM
+
+#if !WQ_ASM	// d_raster060.s
 /*
 ===================
 D_PolysetSetUpForLineScan
@@ -565,6 +574,7 @@ void D_PolysetCalcGradients (int skinwidth)
 
 	a_ststepxwhole = skinwidth * (r_tstepx >> 16) + (r_sstepx >> 16);
 }
+#endif	// !WQ_ASM
 
 #if 0
 byte gelmap[256];
@@ -582,6 +592,7 @@ void InitGel (byte *palette)
 }
 #endif
 
+#if !WQ_ASM	// d_polyse060.s
 /*
 ================
 D_PolysetDrawSpans8
@@ -653,6 +664,8 @@ void D_PolysetDrawSpans8 (spanpackage_t *pspanpackage)
 	} while (pspanpackage->count != -999999);
 }
 
+#endif	// !WQ_ASM
+
 /*
 ================
 D_PolysetFillSpans8
@@ -692,6 +705,7 @@ void D_PolysetFillSpans8 (spanpackage_t *pspanpackage)
 	}
 }
 
+#if !WQ_ASM	// d_raster060.s
 /*
 ================
 D_RasterizeAliasPolySmooth
@@ -976,6 +990,7 @@ void D_PolysetSetEdgeTable (void)
 
 	pedgetable = &edgetables[edgetableindex];
 }
+#endif	// !WQ_ASM (D_RasterizeAliasPolySmooth, D_PolysetSetEdgeTable)
 
 
 #if 0

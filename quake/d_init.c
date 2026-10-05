@@ -143,7 +143,14 @@ void D_SetupFrame (void)
 
 	for (i=0 ; i<(NUM_MIPS-1) ; i++)
 		d_scalemip[i] = basemip[i] * d_mipscale.value;
-				d_drawspans = D_DrawSpans8;
+
+// warpQuake: id's x86 choice, back for the 68060 (quakegeneric dropped it
+// with the asm): 16-pixel subdivision halves the divides and the per-block
+// work; 8 is the original C, kept for comparison
+	if (d_subdiv16.value)
+		d_drawspans = D_DrawSpans16;
+	else
+		d_drawspans = D_DrawSpans8;
 
 	d_aflatcolor = 0;
 }

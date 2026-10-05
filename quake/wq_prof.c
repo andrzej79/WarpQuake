@@ -7,8 +7,10 @@ unsigned long	wqp_ticks[WQP_COUNT];
 unsigned long	wqp_calls[WQP_COUNT];
 unsigned long	wqc_count[WQC_COUNT];
 int				wqp_qcdepth;
+unsigned long	wqc_particlepeak;
 
 qboolean		wqp_crcon;
+qboolean		wqp_phases;
 
 // -crc: a CRC-32 over every frame shown.  With a fixed host_framerate a
 // timedemo renders the same frames on any machine at any speed, so two
@@ -17,6 +19,7 @@ static unsigned long	crcTable[256];
 static unsigned long	crcAll;         // CRC of the frames' CRCs
 static unsigned long	crcFrames;
 static FILE				*crcFile;       // -crcfile: one line per frame
+static unsigned long	crcDump;        // -crcdump <n>: frame n to a file
 
 static qboolean	resetPending;
 static qboolean	sampling;
@@ -102,6 +105,19 @@ void WQP_FrameCRC (const unsigned char *buf, int width, int height, int rowbytes
 	crcFrames++;
 	if (crcFile)
 		fprintf (crcFile, "%lu %08lx\n", crcFrames, crc);
+
+	// the raw 8-bit frame, to find what differs where two CRCs disagree
+	if (crcFrames == crcDump)
+	{
+		FILE	*f = fopen (va ("RAM:frame%lu_%dx%d.raw", crcFrames, width, height), "wb");
+
+		if (f)
+		{
+			for (y = 0 ; y < height ; y++)
+				fwrite (buf + y * rowbytes, 1, width, f);
+			fclose (f);
+		}
+	}
 }
 
 static void Reset (void)
@@ -110,6 +126,11 @@ static void Reset (void)
 	memset (wqp_calls, 0, sizeof(wqp_calls));
 	memset (wqc_count, 0, sizeof(wqc_count));
 	wqp_qcdepth = 0;
+	wqc_particlepeak = 0;
+	{
+		extern unsigned long	r_projhits, r_projmisses;
+		r_projhits = r_projmisses = 0;
+	}
 	crcAll = 0xFFFFFFFFUL;
 	crcFrames = 0;
 	if (crcFile)
@@ -184,8 +205,11 @@ static void Report (const char *logpath)
 			frames, frameMs, 1000.0 / frameMs);
 	Out (f, "%dx%d (3D view %dx%d), %s\n", vid.width, vid.height,
 			r_refdef.vrect.width, r_refdef.vrect.height, QG_VideoInfo ());
-	Out (f, "%-30s %8s %6s %7s\n", "phase", "ms/frm", "%", "calls");
-	for (r = rows ; r < rows + sizeof(rows)/sizeof(rows[0]) ; r++)
+	if (!wqp_phases)
+		Out (f, "(phase timers off: run with -prof for the breakdown)\n");
+	else
+		Out (f, "%-30s %8s %6s %7s\n", "phase", "ms/frm", "%", "calls");
+	for (r = rows ; wqp_phases && r < rows + sizeof(rows)/sizeof(rows[0]) ; r++)
 	{
 		char	name[40];
 
@@ -201,6 +225,8 @@ static void Report (const char *logpath)
 	Out (f, "-- work per frame\n");
 	Out (f, "world span pixels   %8.0f  (%.2fx the 3D view; 1 B each + 1 B texel read)\n",
 			(double)wqc_count[WQC_SPAN_PIXELS] / frames, (double)wqc_count[WQC_SPAN_PIXELS] / frames / pixels);
+	Out (f, "world spans         %8.0f  (%.1f pixels each)\n", (double)wqc_count[WQC_SPANS] / frames,
+			wqc_count[WQC_SPANS] ? (double)wqc_count[WQC_SPAN_PIXELS] / wqc_count[WQC_SPANS] : 0.0);
 	Out (f, "z-buffer words      %8.0f  (2 B each)\n", (double)wqc_count[WQC_ZSPAN_PIXELS] / frames);
 	Out (f, "water/lava pixels   %8.0f\n", (double)wqc_count[WQC_TURB_PIXELS] / frames);
 	Out (f, "alias span pixels   %8.0f  (tested against z; not all are written)\n",
@@ -208,10 +234,22 @@ static void Report (const char *logpath)
 	Out (f, "surface cache       %8.1f blocks, %.1f KB built\n",
 			(double)wqc_count[WQC_CACHE_BUILDS] / frames, wqc_count[WQC_CACHE_BYTES] / 1024.0 / frames);
 	Out (f, "blit                %8.1f KB\n", wqc_count[WQC_BLIT_BYTES] / 1024.0 / frames);
+	{
+		extern unsigned long	r_projhits, r_projmisses;
+		Out (f, "world vertices      %8.1f projected, %.1f reused\n",
+				(double)r_projmisses / frames, (double)r_projhits / frames);
+	}
+	{
+		extern int	r_numparticles;
+		Out (f, "particles           %8.1f active, %lu at most (limit %d)\n",
+				(double)wqc_count[WQC_PARTICLES] / frames, wqc_particlepeak, r_numparticles);
+	}
 
-	reads = 0;
-	for (i = 0 ; i < WQP_COUNT ; i++)
-		reads += 2 * wqp_calls[i];
+	reads = 2 * frames;
+	if (wqp_phases)
+		for (i = 0 ; i < WQP_COUNT ; i++)
+			if (i != WQP_FRAME)
+				reads += 2 * wqp_calls[i];
 	Out (f, "-- timer: %.0f Hz, %.2f us/read, %.1f reads/frame = %.3f ms/frame (%.2f%%) of overhead\n",
 			rate, timerCostTicks * 1000.0 * msPerTick, (double)reads / frames,
 			timerCostTicks * reads / frames * msPerTick, 100.0 * timerCostTicks * reads / frames * msPerTick / frameMs);
@@ -267,6 +305,22 @@ static void ProfReset_f (void)
 	resetPending = true;
 }
 
+// membench: what the board's memory costs, per access pattern (amiga_bench.c)
+static void MemBench_f (void)
+{
+	const char	*text = QG_MemBench ();
+	FILE		*f;
+
+	Con_Printf ("%s", text);
+	f = fopen ("RAM:WarpQuake_membench.txt", "w");
+	if (f)
+	{
+		fputs (text, f);
+		fclose (f);
+		Con_Printf ("membench: written to RAM:WarpQuake_membench.txt\n");
+	}
+}
+
 static void ProfSample_f (void)
 {
 	if (Cmd_Argc () > 1 && !Q_strcmp (Cmd_Argv (1), "stop"))
@@ -280,11 +334,14 @@ void WQP_Init (void)
 	Cmd_AddCommand ("prof", Prof_f);
 	Cmd_AddCommand ("profreset", ProfReset_f);
 	Cmd_AddCommand ("profsample", ProfSample_f);
+	Cmd_AddCommand ("membench", MemBench_f);
 	CalibrateTimer ();
 	CRCInit ();
 	wqp_crcon = COM_CheckParm ("-crc") != 0;
+	wqp_phases = COM_CheckParm ("-prof") != 0;
 	if (wqp_crcon && COM_CheckParm ("-crcfile") && COM_CheckParm ("-crcfile") < com_argc - 1)
 		crcFile = fopen (com_argv[COM_CheckParm ("-crcfile") + 1], "w");
+	crcDump = (unsigned long)Q_atoi ((char *)ArgValue ("-crcdump", "0"));
 	Reset ();
 }
 

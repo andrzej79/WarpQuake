@@ -595,7 +595,7 @@ void _Host_Frame (float time)
 
 	WQP_FrameStart ();
 	{
-	WQP_BEGIN (WQP_FRAME);
+	WQP_BEGIN_FRAME;
 	WQP_BEGIN (WQP_INPUT);
 		
 // get new key events
@@ -690,7 +690,7 @@ void _Host_Frame (float time)
 	}
 	
 	host_framecount++;
-	WQP_END (WQP_FRAME);
+	WQP_END_FRAME;
 	}
 }
 

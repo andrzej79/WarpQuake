@@ -14,6 +14,10 @@ void qgPrintf(const char *fmt, ...);
 // amiga_input.c
 void qgInputReset(void);
 
+// move16.s: both pointers 16-byte aligned
+void qgMove16Copy(const void *src, void *dst, ULONG bytes);       // bytes % 64 == 0
+void qgMove16Rows(const UBYTE *src, UBYTE *dst, ULONG width, ULONG height, ULONG dstBytesPerRow);
+
 // The two engine entry points the platform layer calls back into (sys.h);
 // declared here because quakedef.h cannot be included next to the OS headers.
 void Sys_Quit(void);

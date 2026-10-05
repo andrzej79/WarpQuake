@@ -21,7 +21,10 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include "quakedef.h"
 #include "r_local.h"
 
-#define MAX_PARTICLES			2048	// default max # of particles at one
+// warpQuake: 1536, not 2048.  demo1 and demo3 hit 2048 in bursts (one
+// explosion spawns 1024), where particles cost ~20% of a frame on a 68060;
+// a single explosion still gets all its particles.  -particles overrides.
+#define MAX_PARTICLES			1536	// default max # of particles at one
 										//  time
 #define ABSOLUTE_MIN_PARTICLES	512		// no fewer than this no matter what's
 										//  on the command line

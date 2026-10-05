@@ -197,6 +197,7 @@ void R_Init (void)
 	Cvar_RegisterVariable (&r_timegraph);
 	Cvar_RegisterVariable (&r_graphheight);
 	Cvar_RegisterVariable (&r_drawflat);
+	Cvar_RegisterVariable (&r_zcover);
 	Cvar_RegisterVariable (&r_ambient);
 	Cvar_RegisterVariable (&r_clearcolor);
 	Cvar_RegisterVariable (&r_waterwarp);
@@ -240,6 +241,10 @@ R_NewMap
 void R_NewMap (void)
 {
 	int		i;
+	extern int	r_lightgen;
+
+	r_lightgen++;		// warpQuake: R_LightPointEntity's cached hits are stale
+	R_AllocProjVerts ();
 	
 // clear out efrags in case the level hasn't been reloaded
 // FIXME: is this one short?
@@ -536,7 +541,7 @@ void R_DrawEntitiesOnList (void)
 		// trivial accept status
 			if (R_AliasCheckBBox ())
 			{
-				j = R_LightPoint (currententity->origin);
+				j = R_LightPointEntity (currententity);
 	
 				lighting.ambientlight = j;
 				lighting.shadelight = j;
@@ -608,7 +613,7 @@ void R_DrawViewModel (void)
 	VectorCopy (vup, viewlightvec);
 	VectorInverse (viewlightvec);
 
-	j = R_LightPoint (currententity->origin);
+	j = R_LightPointEntity (currententity);
 
 	if (j < 24)
 		j = 24;		// allways give some light on gun
@@ -760,6 +765,7 @@ void R_DrawBEntitiesOnList (void)
 		
 			// FIXME: stop transforming twice
 				R_RotateBmodel ();
+				r_projstamp++;	// warpQuake: modelorg and the view axes changed
 
 			// calculate dynamic lighting for bmodel if it's not an
 			// instanced model
@@ -795,7 +801,23 @@ void R_DrawBEntitiesOnList (void)
 						r_emaxs[j] = minmaxs[3+j];
 					}
 
-					R_SplitEntityOnNode2 (cl.worldmodel->nodes);
+				// warpQuake: the walk's answer depends only on the box,
+				// the PVS and the world tree, and most brush entities
+				// (items, idle doors) stay put: keep it per entity
+					if (currententity->wq_topvisframe == r_visframecount &&
+						currententity->wq_topworld == cl.worldmodel &&
+						!memcmp (currententity->wq_topbox, minmaxs, sizeof(currententity->wq_topbox)))
+					{
+						r_pefragtopnode = currententity->wq_topnode;
+					}
+					else
+					{
+						R_SplitEntityOnNode2 (cl.worldmodel->nodes);
+						currententity->wq_topvisframe = r_visframecount;
+						currententity->wq_topworld = cl.worldmodel;
+						memcpy (currententity->wq_topbox, minmaxs, sizeof(currententity->wq_topbox));
+						currententity->wq_topnode = r_pefragtopnode;
+					}
 
 					if (r_pefragtopnode)
 					{
@@ -827,6 +849,7 @@ void R_DrawBEntitiesOnList (void)
 				VectorCopy (base_modelorg, modelorg);
 				VectorCopy (oldorigin, modelorg);
 				R_TransformFrustum ();
+				r_projstamp++;
 			}
 
 			break;
@@ -961,6 +984,7 @@ SetVisibilityByPassages ();
 #else
 	R_MarkLeaves ();	// done here so we know if we're in water
 #endif
+	D_ZCoverBuild ();	// warpQuake: where the world must write z
 	WQP_END (WQP_R_SETUP);
 	}
 

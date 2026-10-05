@@ -42,7 +42,7 @@ float				r_shadelight;
 aliashdr_t			*paliashdr;
 finalvert_t			*pfinalverts;
 auxvert_t			*pauxverts;
-static float		ziscale;
+float				ziscale;	// warpQuake: not static, r_alias060.s
 static model_t		*pmodel;
 
 static vec3_t		alias_forward, alias_right, alias_up;
@@ -72,6 +72,28 @@ float	r_avertexnormals[NUMVERTEXNORMALS][3] = {
 #include "anorms.h"
 };
 
+/*
+warpQuake: a vertex's light depends only on its normal index (one of 162)
+and on the entity's lighting, so it is computed once per index per entity
+and looked up after that.  An entry is valid while its stamp is
+r_alightstamp, which R_AliasSetupLighting advances for every entity.  The
+value is the C's own expression, so the result is unchanged.
+*/
+typedef struct {
+	int	stamp;
+	int	light;
+} alightcache_t;
+
+alightcache_t	r_alightcache[NUMVERTEXNORMALS];
+int				r_alightstamp;
+
+/*
+warpQuake: the 256 byte values as floats, so model vertices (bytes) load
+straight into the FPU instead of through an integer conversion
+(r_alias060.s).  Exact: every byte is a float.
+*/
+float			r_bytefloat[256];
+
 void R_AliasTransformAndProjectFinalVerts (finalvert_t *fv,
 	stvert_t *pstverts);
 void R_AliasSetUpTransform (int trivial_accept);
@@ -79,6 +101,8 @@ void R_AliasTransformVector (vec3_t in, vec3_t out);
 void R_AliasTransformFinalVert (finalvert_t *fv, auxvert_t *av,
 	trivertx_t *pverts, stvert_t *pstverts);
 void R_AliasProjectFinalVert (finalvert_t *fv, auxvert_t *av);
+void R_AliasTransformClipVerts (finalvert_t *fv, auxvert_t *av,
+	stvert_t *pstverts, int numverts);	// r_alias060.s
 
 
 /*
@@ -279,6 +303,9 @@ void R_AliasPreparePoints (void)
  	fv = pfinalverts;
 	av = pauxverts;
 
+#if WQ_ASM
+	R_AliasTransformClipVerts (fv, av, pstverts, r_anumverts);
+#else
 	for (i=0 ; i<r_anumverts ; i++, fv++, av++, r_apverts++, pstverts++)
 	{
 		R_AliasTransformFinalVert (fv, av, r_apverts, pstverts);
@@ -298,6 +325,7 @@ void R_AliasPreparePoints (void)
 				fv->flags |= ALIAS_BOTTOM_CLIP;	
 		}
 	}
+#endif
 
 //
 // clip and draw all triangles
@@ -409,29 +437,20 @@ void R_AliasSetUpTransform (int trivial_accept)
 
 /*
 ================
-R_AliasTransformFinalVert
+R_AliasVertexLight
+
+warpQuake: the light of a vertex with normal index i, through r_alightcache.
 ================
 */
-void R_AliasTransformFinalVert (finalvert_t *fv, auxvert_t *av,
-	trivertx_t *pverts, stvert_t *pstverts)
+static int R_AliasVertexLight (int i)
 {
 	int		temp;
 	float	lightcos, *plightnormal;
 
-	av->fv[0] = DotProduct(pverts->v, aliastransform[0]) +
-			aliastransform[0][3];
-	av->fv[1] = DotProduct(pverts->v, aliastransform[1]) +
-			aliastransform[1][3];
-	av->fv[2] = DotProduct(pverts->v, aliastransform[2]) +
-			aliastransform[2][3];
+	if (r_alightcache[i].stamp == r_alightstamp)
+		return r_alightcache[i].light;
 
-	fv->v[2] = pstverts->s;
-	fv->v[3] = pstverts->t;
-
-	fv->flags = pstverts->onseam;
-
-// lighting
-	plightnormal = r_avertexnormals[pverts->lightnormalindex];
+	plightnormal = r_avertexnormals[i];
 	lightcos = DotProduct (plightnormal, r_plightvec);
 	temp = r_ambientlight;
 
@@ -445,9 +464,36 @@ void R_AliasTransformFinalVert (finalvert_t *fv, auxvert_t *av,
 			temp = 0;
 	}
 
-	fv->v[4] = temp;
+	r_alightcache[i].stamp = r_alightstamp;
+	r_alightcache[i].light = temp;
+	return temp;
 }
 
+/*
+================
+R_AliasTransformFinalVert
+================
+*/
+void R_AliasTransformFinalVert (finalvert_t *fv, auxvert_t *av,
+	trivertx_t *pverts, stvert_t *pstverts)
+{
+
+	av->fv[0] = DotProduct(pverts->v, aliastransform[0]) +
+			aliastransform[0][3];
+	av->fv[1] = DotProduct(pverts->v, aliastransform[1]) +
+			aliastransform[1][3];
+	av->fv[2] = DotProduct(pverts->v, aliastransform[2]) +
+			aliastransform[2][3];
+
+	fv->v[2] = pstverts->s;
+	fv->v[3] = pstverts->t;
+
+	fv->flags = pstverts->onseam;
+
+	fv->v[4] = R_AliasVertexLight (pverts->lightnormalindex);
+}
+
+#if !WQ_ASM	// r_alias060.s
 /*
 ================
 R_AliasTransformAndProjectFinalVerts
@@ -455,8 +501,8 @@ R_AliasTransformAndProjectFinalVerts
 */
 void R_AliasTransformAndProjectFinalVerts (finalvert_t *fv, stvert_t *pstverts)
 {
-	int			i, temp;
-	float		lightcos, *plightnormal, zi;
+	int			i;
+	float		zi;
 	trivertx_t	*pverts;
 
 	pverts = r_apverts;
@@ -481,24 +527,10 @@ void R_AliasTransformAndProjectFinalVerts (finalvert_t *fv, stvert_t *pstverts)
 		fv->v[3] = pstverts->t;
 		fv->flags = pstverts->onseam;
 
-	// lighting
-		plightnormal = r_avertexnormals[pverts->lightnormalindex];
-		lightcos = DotProduct (plightnormal, r_plightvec);
-		temp = r_ambientlight;
-
-		if (lightcos < 0)
-		{
-			temp += (int)(r_shadelight * lightcos);
-
-		// clamp; because we limited the minimum ambient and shading light, we
-		// don't have to clamp low light, just bright
-			if (temp < 0)
-				temp = 0;
-		}
-
-		fv->v[4] = temp;
+		fv->v[4] = R_AliasVertexLight (pverts->lightnormalindex);
 	}
 }
+#endif	// !WQ_ASM
 
 /*
 ================
@@ -634,6 +666,16 @@ void R_AliasSetupLighting (alight_t *plighting)
 	r_plightvec[0] = DotProduct (plighting->plightvec, alias_forward);
 	r_plightvec[1] = -DotProduct (plighting->plightvec, alias_right);
 	r_plightvec[2] = DotProduct (plighting->plightvec, alias_up);
+
+// warpQuake: a new entity's lighting, so every cached vertex light is stale
+	r_alightstamp++;
+	if (r_bytefloat[255] == 0)
+	{
+		int		i;
+
+		for (i=0 ; i<256 ; i++)
+			r_bytefloat[i] = (float)i;
+	}
 }
 
 /*
@@ -739,3 +781,47 @@ void R_AliasDrawModel (alight_t *plighting)
 		R_AliasPreparePoints ();
 }
 
+
+/*
+================
+R_AliasWorldCorners
+
+warpQuake z coverage (d_zcover.c): the 8 corners of entity e's current frame
+bounding box, in world space - the corners R_AliasCheckBBox starts from,
+through the model half of R_AliasSetUpTransform (scale, angles, origin).
+For a group the frame's box covers all its poses.
+================
+*/
+void R_AliasWorldCorners (entity_t *e, vec3_t corners[8])
+{
+	int					i, frame;
+	aliashdr_t			*pahdr;
+	mdl_t				*mdl;
+	maliasframedesc_t	*pframedesc;
+	vec3_t				angles, forward, right, up, p;
+
+	pahdr = Mod_Extradata (e->model);
+	mdl = (mdl_t *)((byte *)pahdr + pahdr->model);
+	frame = e->frame;
+	if ((frame >= mdl->numframes) || (frame < 0))
+		frame = 0;
+	pframedesc = &pahdr->frames[frame];
+
+	angles[ROLL] = e->angles[ROLL];
+	angles[PITCH] = -e->angles[PITCH];
+	angles[YAW] = e->angles[YAW];
+	AngleVectors (angles, forward, right, up);
+
+	for (i=0 ; i<8 ; i++)
+	{
+		p[0] = (float)((i & 4) ? pframedesc->bboxmax.v[0] : pframedesc->bboxmin.v[0]);
+		p[1] = (float)((i & 2) ? pframedesc->bboxmax.v[1] : pframedesc->bboxmin.v[1]);
+		p[2] = (float)((i & 1) ? pframedesc->bboxmax.v[2] : pframedesc->bboxmin.v[2]);
+		p[0] = p[0] * mdl->scale[0] + mdl->scale_origin[0];
+		p[1] = p[1] * mdl->scale[1] + mdl->scale_origin[1];
+		p[2] = p[2] * mdl->scale[2] + mdl->scale_origin[2];
+		corners[i][0] = e->origin[0] + forward[0]*p[0] - right[0]*p[1] + up[0]*p[2];
+		corners[i][1] = e->origin[1] + forward[1]*p[0] - right[1]*p[1] + up[1]*p[2];
+		corners[i][2] = e->origin[2] + forward[2]*p[0] - right[2]*p[1] + up[2]*p[2];
+	}
+}

@@ -13,8 +13,11 @@ MATHLIB     := $(if $(filter 68040,$(CPU)),-lm040,-lm060)
 # -O1, not -O2: vbcc 0.9h has a known -O2 loop miscompile (see warpPDFViewer).
 # OPT=2 is an experiment, to be validated against timedemo results.
 OPT         ?= 1
-OBJ_DIR     := $(BUILD_DIR)/obj-$(CPU)-O$(OPT)
-SUFFIX      := $(if $(filter 68040,$(CPU)),_040)$(if $(filter-out 1,$(OPT)),_O$(OPT))
+# ASM=1: the 68060 routines in quake/*.s replace their C versions (WQ_ASM in
+# quakedef.h).  ASM=0 is the all-C reference, for -crc comparisons.
+ASM         ?= 1
+OBJ_DIR     := $(BUILD_DIR)/obj-$(CPU)-O$(OPT)$(if $(filter 0,$(ASM)),-C)
+SUFFIX      := $(if $(filter 68040,$(CPU)),_040)$(if $(filter-out 1,$(OPT)),_O$(OPT))$(if $(filter 0,$(ASM)),_C)
 BIN         := $(BUILD_DIR)/$(TARGET)$(SUFFIX)
 
 # ---- SDK / Includes ----
@@ -25,10 +28,11 @@ INC_FLAGS   := -Iquake -Isrc -I$(NDK_INC_C)
 # Picasso96 structures from the repo's P96 SDK, after the NDK (its proto/ and
 # pragmas/ are for other compilers; vbcc has its own inline/ stubs).
 P96_INC     := -I../p96_gfx_driver/Picasso96Develop/Include
-DEF_FLAGS   := $(addprefix -D,$(DEFINES))
+DEF_FLAGS   := $(addprefix -D,$(DEFINES)) -DWQ_ASM=$(ASM)
 
 # ---- Toolchain ----
 CC      := vc
+AS      := vasmm68k_mot
 RM      := rm -rf
 MKDIR   := mkdir -p
 
@@ -37,14 +41,18 @@ OPTFLAG := -O$(OPT)
 CFLAGS  = +aos68k_std -cpu=$(CPU) -fpu=$(CPU) -c99 $(OPTFLAG) -dontwarn=153 -dontwarn=214 -dontwarn=208 -dontwarn=81
 LIBS    := -lamiga -ldebug $(MATHLIB)
 LDFLAGS := $(LIBS)
+ASFLAGS := -quiet -Fhunk -m68060
 
 # ---- Sources ----
 # The engine list is quakegeneric's own (its CMakeLists.txt), less its null
 # backend: src/ provides main() and the QG_* hooks.
 ENGINE_SRC  := $(filter-out quake/quakegeneric_null.c,$(wildcard quake/*.c))
 ENGINE_OBJS := $(patsubst quake/%.c,$(OBJ_DIR)/quake/%.o,$(ENGINE_SRC))
+ENGINE_ASM  := $(if $(filter 1,$(ASM)),$(wildcard quake/*.s))
+ENGINE_OBJS += $(patsubst quake/%.s,$(OBJ_DIR)/quake/%.o,$(ENGINE_ASM))
 APP_SRC     := $(wildcard src/*.c)
 APP_OBJS    := $(patsubst src/%.c,$(OBJ_DIR)/src/%.o,$(APP_SRC))
+APP_OBJS    += $(patsubst src/%.s,$(OBJ_DIR)/src/%.o,$(wildcard src/*.s))
 OBJS        := $(APP_OBJS) $(ENGINE_OBJS)
 
 .PHONY: all app prof clean distclean install ftp ftp-data
@@ -67,6 +75,23 @@ $(OBJ_DIR)/quake/%.o: quake/%.c $(wildcard quake/*.h)
 	@$(MKDIR) $(@D)
 	@echo "  CC $<"
 	@$(CC) $(CFLAGS) $(INC_FLAGS) $(DEF_FLAGS) -c $< -o $@ > $@.log 2>&1 || { cat $@.log; exit 1; }
+
+$(OBJ_DIR)/src/%.o: src/%.s
+	@$(MKDIR) $(@D)
+	$(AS) $(ASFLAGS) -o $@ $<
+
+$(OBJ_DIR)/quake/%.o: quake/%.s
+	@$(MKDIR) $(@D)
+	@echo "  AS $<"
+	@$(AS) $(ASFLAGS) -o $@ $< > $@.log 2>&1 || { cat $@.log; exit 1; }
+
+# Engine files to build at -O2, the rest at -O1: an experiment knob, empty by
+# default.  13 hot files (r_draw r_bsp d_polyse r_alias r_aclip d_edge r_misc
+# r_light r_part d_part r_surf d_surf cl_main) gave identical frames at -O2
+# but ran SLOWER on the 060 (world BSP 6.98 -> 7.34 ms, demo1, 2026-10-04).
+# The whole engine at -O2 does not even give identical frames.
+O2_FILES ?=
+$(foreach f,$(O2_FILES),$(eval $(OBJ_DIR)/quake/$(f).o: OPTFLAG := -O2))
 
 # For tools/wprof.py: the same objects linked without stripping, plus a map.
 VBCC_LIB := $(VBCC)/targets/m68k-amigaos/lib

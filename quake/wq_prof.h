@@ -3,7 +3,9 @@
 //
 // The timers read the platform's tick counter (QG_Ticks) at phase boundaries
 // only - a few dozen reads a frame.  Inside the hot loops there are only
-// counter increments.  Where a hot function's time is wanted, the sampling
+// counter increments.  A read is not free (an E-clock read is ~10 us on a
+// 68060 Amiga, 0.6 ms a frame for all phases), so the phase timers run only
+// with -prof; the frame timer always runs, for the report's ms/frame.  Where a hot function's time is wanted, the sampling
 // profiler (profsample) answers that without disturbing it.
 
 #ifndef WQ_PROF_H
@@ -45,6 +47,8 @@ typedef enum
 	WQC_CACHE_BUILDS,   // surface-cache blocks built
 	WQC_CACHE_BYTES,    // ... and their size
 	WQC_BLIT_BYTES,     // bytes handed to the display
+	WQC_SPANS,          // D_DrawSpans8 spans: asm build only (d_spans060.s knows this index)
+	WQC_PARTICLES,      // active particles
 	WQC_COUNT
 } wqp_counter_t;
 
@@ -52,9 +56,15 @@ extern unsigned long	wqp_ticks[WQP_COUNT];
 extern unsigned long	wqp_calls[WQP_COUNT];
 extern unsigned long	wqc_count[WQC_COUNT];
 extern int				wqp_qcdepth;
+extern unsigned long	wqc_particlepeak;	// most active particles in one frame
 
-#define WQP_BEGIN(p)	unsigned long wqp_t0_##p = QG_Ticks ()
-#define WQP_END(p)		(wqp_ticks[p] += QG_Ticks () - wqp_t0_##p, wqp_calls[p]++)
+extern qboolean			wqp_phases;	// -prof: the phase timers run
+
+#define WQP_BEGIN(p)	unsigned long wqp_t0_##p = wqp_phases ? QG_Ticks () : 0
+#define WQP_END(p)		((wqp_phases ? (wqp_ticks[p] += QG_Ticks () - wqp_t0_##p) : 0), wqp_calls[p]++)
+// the frame timer: always on
+#define WQP_BEGIN_FRAME	unsigned long wqp_t0_frame = QG_Ticks ()
+#define WQP_END_FRAME	(wqp_ticks[WQP_FRAME] += QG_Ticks () - wqp_t0_frame, wqp_calls[WQP_FRAME]++)
 #define WQC_ADD(c, n)	(wqc_count[c] += (unsigned long)(n))
 
 extern qboolean			wqp_crcon;  // -crc

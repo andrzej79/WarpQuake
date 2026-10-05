@@ -73,6 +73,9 @@ void R_MarkLights (dlight_t *light, int bit, mnode_t *node)
 	msurface_t	*surf;
 	int			i;
 	
+	// warpQuake: the tail calls are this loop (vbcc made each a full call)
+	for (;;)
+	{
 	if (node->contents < 0)
 		return;
 
@@ -81,13 +84,13 @@ void R_MarkLights (dlight_t *light, int bit, mnode_t *node)
 	
 	if (dist > light->radius)
 	{
-		R_MarkLights (light, bit, node->children[0]);
-		return;
+		node = node->children[0];
+		continue;
 	}
 	if (dist < -light->radius)
 	{
-		R_MarkLights (light, bit, node->children[1]);
-		return;
+		node = node->children[1];
+		continue;
 	}
 		
 // mark the polygons
@@ -103,7 +106,8 @@ void R_MarkLights (dlight_t *light, int bit, mnode_t *node)
 	}
 
 	R_MarkLights (light, bit, node->children[0]);
-	R_MarkLights (light, bit, node->children[1]);
+	node = node->children[1];
+	}
 }
 
 
@@ -138,6 +142,33 @@ LIGHT SAMPLING
 =============================================================================
 */
 
+// warpQuake: the light trace remembers what it hit, so R_LightPointEntity can
+// cache it per entity and only redo the style-weighted sum below
+static msurface_t	*lp_surf;
+static byte			*lp_lightmap;
+int					r_lightgen = 1;	// bumped by R_NewMap: cached hits are stale
+
+// A lightmap sample, weighted by the current light styles - the end of id's
+// RecursiveLightPoint, unchanged.
+static int LightmapValue (msurface_t *surf, byte *lightmap)
+{
+	int			r, maps;
+	unsigned	scale;
+
+	r = 0;
+	for (maps = 0 ; maps < MAXLIGHTMAPS && surf->styles[maps] != 255 ;
+			maps++)
+	{
+		scale = d_lightstylevalue[surf->styles[maps]];
+		r += *lightmap * scale;
+		lightmap += ((surf->extents[0]>>4)+1) *
+				((surf->extents[1]>>4)+1);
+	}
+	
+	r >>= 8;
+	return r;
+}
+
 int RecursiveLightPoint (mnode_t *node, vec3_t start, vec3_t end)
 {
 	int			r;
@@ -152,7 +183,12 @@ int RecursiveLightPoint (mnode_t *node, vec3_t start, vec3_t end)
 	byte		*lightmap;
 	unsigned	scale;
 	int			maps;
+	vec3_t		startbuf;
 
+	// warpQuake: the tail calls are this loop - vbcc made every level of
+	// the descent a full call, saving 10 integer and 4 FPU registers
+	for (;;)
+	{
 	if (node->contents < 0)
 		return -1;		// didn't hit anything
 	
@@ -165,7 +201,10 @@ int RecursiveLightPoint (mnode_t *node, vec3_t start, vec3_t end)
 	side = front < 0;
 	
 	if ( (back < 0) == side)
-		return RecursiveLightPoint (node->children[side], start, end);
+	{
+		node = node->children[side];
+		continue;
+	}
 	
 	frac = front / (front-back);
 	mid[0] = start[0] + (end[0] - start[0])*frac;
@@ -203,36 +242,70 @@ int RecursiveLightPoint (mnode_t *node, vec3_t start, vec3_t end)
 		if ( ds > surf->extents[0] || dt > surf->extents[1] )
 			continue;
 
+		lp_surf = surf;
 		if (!surf->samples)
+		{
+			lp_lightmap = NULL;
 			return 0;
+		}
 
 		ds >>= 4;
 		dt >>= 4;
 
-		lightmap = surf->samples;
-		r = 0;
-		if (lightmap)
-		{
-
-			lightmap += dt * ((surf->extents[0]>>4)+1) + ds;
-
-			for (maps = 0 ; maps < MAXLIGHTMAPS && surf->styles[maps] != 255 ;
-					maps++)
-			{
-				scale = d_lightstylevalue[surf->styles[maps]];
-				r += *lightmap * scale;
-				lightmap += ((surf->extents[0]>>4)+1) *
-						((surf->extents[1]>>4)+1);
-			}
-			
-			r >>= 8;
-		}
-		
-		return r;
+		lp_lightmap = surf->samples + dt * ((surf->extents[0]>>4)+1) + ds;
+		return LightmapValue (surf, lp_lightmap);
 	}
 
 // go down back side
-	return RecursiveLightPoint (node->children[!side], mid, end);
+	VectorCopy (mid, startbuf);
+	start = startbuf;
+	node = node->children[!side];
+	}
+}
+
+/*
+=============
+R_LightPointEntity
+
+warpQuake: R_LightPoint (e->origin), without the BSP trace while the entity
+has not moved: the trace's hit depends only on the point and the world, and
+only the light styles change from frame to frame, so the hit is cached and
+the style-weighted sum recomputed.  Same value as R_LightPoint.
+=============
+*/
+int R_LightPointEntity (entity_t *e)
+{
+	int		r;
+
+	if (!cl.worldmodel->lightdata)
+		return 255;
+
+	if (e->wq_lightgen != r_lightgen || !VectorCompare (e->wq_lightorg, e->origin))
+	{
+		vec3_t	end;
+
+		end[0] = e->origin[0];
+		end[1] = e->origin[1];
+		end[2] = e->origin[2] - 2048;
+		lp_surf = NULL;
+		lp_lightmap = NULL;
+		r = RecursiveLightPoint (cl.worldmodel->nodes, e->origin, end);
+		e->wq_lightkind = (r == -1) ? -1 : (lp_lightmap ? 1 : 0);
+		e->wq_lightsurf = lp_surf;
+		e->wq_lightmap = lp_lightmap;
+		e->wq_lightgen = r_lightgen;
+		VectorCopy (e->origin, e->wq_lightorg);
+	}
+
+	if (e->wq_lightkind == 1)
+		r = LightmapValue (e->wq_lightsurf, e->wq_lightmap);
+	else
+		r = 0;		// -1 (nothing hit) becomes 0 in R_LightPoint too
+
+	if (r < r_refdef.ambientlight)
+		r = r_refdef.ambientlight;
+
+	return r;
 }
 
 int R_LightPoint (vec3_t p)

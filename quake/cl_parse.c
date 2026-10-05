@@ -355,6 +355,7 @@ void CL_ParseUpdate (int bits)
 		num = MSG_ReadByte ();
 
 	ent = CL_EntityNum (num);
+	cl_entlive[num] = 1;	// warpQuake: CL_RelinkEntities must look at it
 
 for (i=0 ; i<16 ; i++)
 if (bits&(1<<i))

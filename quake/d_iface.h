@@ -47,7 +47,12 @@ typedef struct particle_s
 	float		ramp;
 	float		die;
 	ptype_t		type;
+// warpQuake: the projection D_ProjectParticle made this frame (wq_frame ==
+// r_framecount); wq_u < 0 when the particle is not drawn
+	int			wq_frame, wq_u, wq_v, wq_izi;
 } particle_t;
+
+void D_ProjectParticle (particle_t *pparticle);
 
 #define PARTICLE_Z_CLIP	8.0
 

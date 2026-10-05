@@ -440,6 +440,7 @@ void R_DrawSubmodelPolygons (model_t *pmodel, int clipflags)
 }
 
 
+#if !WQ_ASM	// r_bsp060.s
 /*
 ================
 R_RecursiveWorldNode
@@ -637,6 +638,7 @@ void R_RecursiveWorldNode (mnode_t *node, int clipflags)
 		R_RecursiveWorldNode (node->children[!side], clipflags);
 	}
 }
+#endif	// !WQ_ASM
 
 
 
@@ -655,6 +657,7 @@ void R_RenderWorld (void)
 
 	currententity = &cl_entities[0];
 	VectorCopy (r_origin, modelorg);
+	r_projstamp++;		// warpQuake: projected vertices are per modelorg/view
 	clmodel = currententity->model;
 	r_pcurrentvertbase = clmodel->vertexes;
 

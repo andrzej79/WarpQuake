@@ -214,6 +214,26 @@ void	R_ZDrawSubmodelPolys (model_t *clmodel);
 #define MAXALIASVERTS		2000	// TODO: tune this
 #define ALIAS_Z_CLIP_PLANE	5
 
+void R_AliasWorldCorners (entity_t *e, vec3_t corners[8]);
+
+// warpQuake: projected world vertices (r_draw.c)
+typedef struct
+{
+	float	u, v, lzi;		// clamped screen position and 1/z, as R_EmitEdge uses them
+	int		stamp;			// valid while == r_projstamp
+	int		pad[2];			// 24 bytes: twice an mvertex_t, so r_draw060.s finds
+							// the entry at 2 * the vertex's byte offset
+} projvert_t;
+extern projvert_t	*r_projverts;	// one per world vertex, allocated by R_NewMap
+extern int			r_projstamp;	// bumped whenever modelorg or the view axes change
+extern mvertex_t	*r_projvertbase;	// cl.worldmodel->vertexes ...
+extern unsigned		r_projlimit;		// ... and its size in bytes
+void R_AllocProjVerts (void);
+
+// warpQuake z coverage (d_zcover.c)
+extern cvar_t	r_zcover;
+void D_ZCoverBuild (void);
+
 extern int				numverts;
 extern int				a_skinwidth;
 extern mtriangle_t		*ptriangles;
@@ -296,6 +316,7 @@ void R_PrintTimes (void);
 void R_PrintDSpeeds (void);
 void R_AnimateLight (void);
 int R_LightPoint (vec3_t p);
+int R_LightPointEntity (entity_t *e);	// warpQuake: R_LightPoint (e->origin), cached
 void R_SetupFrame (void);
 void R_cshift_f (void);
 void R_EmitEdge (mvertex_t *pv0, mvertex_t *pv1);

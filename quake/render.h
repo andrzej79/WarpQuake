@@ -67,6 +67,19 @@ typedef struct entity_s
 	struct mnode_s			*topnode;		// for bmodels, first world node
 											//  that splits bmodel, or NULL if
 											//  not split
+// warpQuake: R_LightPointEntity's cache - what the light trace from wq_lightorg
+// hit, valid while wq_lightgen == r_lightgen (bumped by R_NewMap)
+	int						wq_lightgen;
+	vec3_t					wq_lightorg;
+	int						wq_lightkind;	// -1 nothing, 0 no lightmap, 1 wq_lightmap
+	struct msurface_s		*wq_lightsurf;
+	byte					*wq_lightmap;
+// warpQuake: R_SplitEntityOnNode2's answer for a brush entity (r_main.c),
+// valid while its box, the PVS (r_visframecount) and the world are the same
+	int						wq_topvisframe;
+	struct model_s			*wq_topworld;
+	float					wq_topbox[6];
+	struct mnode_s			*wq_topnode;
 } entity_t;
 
 // !!! if this is changed, it must be changed in asm_draw.h too !!!

@@ -98,6 +98,11 @@ extern pixel_t	*d_viewbuffer;
 
 extern short	*zspantable[MAXHEIGHT];
 
+// warpQuake z coverage (d_zcover.c): per screen row, the z-buffer is written
+// for d_zcov_x0 <= x < d_zcov_x1 only
+extern short	d_zcov_x0[MAXHEIGHT];
+extern short	d_zcov_x1[MAXHEIGHT];
+
 extern int		d_minmip;
 extern float	d_scalemip[3];
 

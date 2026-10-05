@@ -27,6 +27,8 @@ static finalvert_t		fv[2][8];
 static auxvert_t		av[8];
 
 void R_AliasProjectFinalVert (finalvert_t *fv, auxvert_t *av);
+int R_AliasClip (finalvert_t *in, finalvert_t *out, int flag, int count,
+	void(*clip)(finalvert_t *pfv0, finalvert_t *pfv1, finalvert_t *out));
 void R_Alias_clip_top (finalvert_t *pfv0, finalvert_t *pfv1,
 	finalvert_t *out);
 void R_Alias_clip_bottom (finalvert_t *pfv0, finalvert_t *pfv1,
@@ -182,6 +184,7 @@ void R_Alias_clip_bottom (finalvert_t *pfv0, finalvert_t *pfv1,
 	}
 }
 
+#if !WQ_ASM	// r_aclip060.s
 int R_AliasClip (finalvert_t *in, finalvert_t *out, int flag, int count,
 	void(*clip)(finalvert_t *pfv0, finalvert_t *pfv1, finalvert_t *out) )
 {
@@ -220,6 +223,7 @@ int R_AliasClip (finalvert_t *in, finalvert_t *out, int flag, int count,
 	
 	return k;
 }
+#endif	// !WQ_ASM
 
 
 /*

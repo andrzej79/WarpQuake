@@ -166,27 +166,36 @@ void Draw_Character (int x, int y, int num)
 		drawline = 8;
 
 	dest = vid.conbuffer + y*vid.conrowbytes + x;
-	
-	while (drawline--)
+
+	// warpQuake: a character row is 8 bytes; its transparent ones (0) are
+	// masked out with two longwords instead of tested one by one.  The
+	// masks come from draw_chars once (RAM is plentiful: 16 KB).  The 68060
+	// does not mind misaligned longwords.
 	{
-		if (source[0])
-			dest[0] = source[0];
-		if (source[1])
-			dest[1] = source[1];
-		if (source[2])
-			dest[2] = source[2];
-		if (source[3])
-			dest[3] = source[3];
-		if (source[4])
-			dest[4] = source[4];
-		if (source[5])
-			dest[5] = source[5];
-		if (source[6])
-			dest[6] = source[6];
-		if (source[7])
-			dest[7] = source[7];
-		source += 128;
-		dest += vid.conrowbytes;
+		static unsigned long	charmask[128*128/4];	// draw_chars' layout
+		static qboolean			charmaskok;
+		const unsigned long		*m;
+
+		if (!charmaskok)
+		{
+			int		i;
+
+			for (i = 0 ; i < 128*128 ; i++)
+				((byte *)charmask)[i] = draw_chars[i] ? 0xFF : 0;
+			charmaskok = true;
+		}
+		m = (const unsigned long *)((byte *)charmask + (source - draw_chars));
+		while (drawline--)
+		{
+			unsigned long	*d = (unsigned long *)dest;
+			const unsigned long	*src = (const unsigned long *)source;
+
+			d[0] = (d[0] & ~m[0]) | (src[0] & m[0]);
+			d[1] = (d[1] & ~m[1]) | (src[1] & m[1]);
+			source += 128;
+			m += 128/4;
+			dest += vid.conrowbytes;
+		}
 	}
 }
 
@@ -271,11 +280,22 @@ void Draw_Pic (int x, int y, qpic_t *pic)
 
 	dest = vid.buffer + y * vid.rowbytes + x;
 
+	// warpQuake: longwords whatever the alignment (the 68060 does misaligned
+	// accesses in hardware); Q_memcpy went byte by byte unless both ends were
+	// aligned, and the status bar pictures (redrawn every frame while an item
+	// icon flashes) never are.  The same bytes.
 	for (v=0 ; v<pic->height ; v++)
 	{
-			Q_memcpy (dest, source, pic->width);
-			dest += vid.rowbytes;
-			source += pic->width;
+		unsigned long	*d = (unsigned long *)dest;
+		unsigned long	*sl = (unsigned long *)source;
+		int				n;
+
+		for (n = pic->width >> 2 ; n > 0 ; n--)
+			*d++ = *sl++;
+		for (n = 0 ; n < (pic->width & 3) ; n++)
+			((byte *)d)[n] = ((byte *)sl)[n];
+		dest += vid.rowbytes;
+		source += pic->width;
 	}
 }
 

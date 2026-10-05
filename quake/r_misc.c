@@ -296,7 +296,7 @@ void R_TransformFrustum (void)
 TransformVector
 ================
 */
-void TransformVector (vec3_t in, vec3_t out)
+void (TransformVector) (vec3_t in, vec3_t out)	// () keeps the r_shared.h macro out
 {
 	out[0] = DotProduct(in,vright);
 	out[1] = DotProduct(in,vup);

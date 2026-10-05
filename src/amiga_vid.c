@@ -202,7 +202,8 @@ static void updateInfo(void)
   if(headless) {
     sprintf(videoInfo, "headless");
   } else {
-    sprintf(videoInfo, "mode 0x%08lx, blit %s", modeId, blitMode == 1 ? "lock+copy" : "WriteChunkyPixels");
+    static const char *const names[] = {"WriteChunkyPixels", "lock+copy", "lock+MOVE16"};
+    sprintf(videoInfo, "mode 0x%08lx, blit %s", modeId, names[blitMode]);
   }
 }
 
@@ -310,7 +311,7 @@ const char *QG_VideoInfo(void)
 
 void QG_SetBlitMode(int mode)
 {
-  blitMode = (mode == 1) ? 1 : 0;
+  blitMode = (mode >= 0 && mode <= 2) ? mode : 0;
   updateInfo();
 }
 
@@ -320,9 +321,11 @@ BLIT
 ===============================================================================
 */
 
-// Straight into the screen's memory, row by row.  Falls back to
-// WriteChunkyPixels if the bitmap cannot be locked or is not CLUT.
-static BOOL blitLocked(const UBYTE *src)
+// Straight into the screen's memory, row by row: CopyMemQuick, or with
+// move16 MOVE16 bursts, which the uncached RTG memory is built for.  Falls
+// back to WriteChunkyPixels if the bitmap cannot be locked or is not CLUT, and
+// from MOVE16 to CopyMemQuick if anything is not 16-byte aligned.
+static BOOL blitLocked(const UBYTE *src, int y0, int rows, BOOL move16)
 {
   struct BitMap *bm = qgWindow->RPort->BitMap;
   struct RenderInfo ri;
@@ -338,15 +341,18 @@ static BOOL blitLocked(const UBYTE *src)
     p96UnlockBitMap(bm, lock);
     return FALSE;
   }
-  dst = (UBYTE *)ri.Memory;
-  if(((ULONG)src & 3) == 0 && ((ULONG)dst & 3) == 0 && (vidWidth & 3) == 0 && (ri.BytesPerRow & 3) == 0) {
-    for(y = 0; y < vidHeight; y++) {
+  dst = (UBYTE *)ri.Memory + y0 * ri.BytesPerRow;
+  src += y0 * vidWidth;
+  if(move16 && (((ULONG)src | (ULONG)dst | (ULONG)vidWidth | (ULONG)ri.BytesPerRow) & 15) == 0) {
+    qgMove16Rows(src, dst, vidWidth, rows, ri.BytesPerRow);
+  } else if(((ULONG)src & 3) == 0 && ((ULONG)dst & 3) == 0 && (vidWidth & 3) == 0 && (ri.BytesPerRow & 3) == 0) {
+    for(y = 0; y < rows; y++) {
       CopyMemQuick((APTR)src, dst, vidWidth);
       src += vidWidth;
       dst += ri.BytesPerRow;
     }
   } else {
-    for(y = 0; y < vidHeight; y++) {
+    for(y = 0; y < rows; y++) {
       CopyMem((APTR)src, dst, vidWidth);
       src += vidWidth;
       dst += ri.BytesPerRow;
@@ -356,15 +362,32 @@ static BOOL blitLocked(const UBYTE *src)
   return TRUE;
 }
 
-void QG_DrawFrame(void *pixels)
+// Rows y .. y+rows-1 only: the engine says which part of the frame changed
+// (a status bar that did not change is not redrawn, so not copied either).
+void QG_DrawFrameRows(void *pixels, int y, int rows)
 {
   if(qgWindow == NULL) {
     return;
   }
-  if(blitMode == 1 && blitLocked((const UBYTE *)pixels)) {
+  if(y < 0) {
+    rows += y;
+    y = 0;
+  }
+  if(y + rows > vidHeight) {
+    rows = vidHeight - y;
+  }
+  if(rows <= 0) {
     return;
   }
-  WriteChunkyPixels(qgWindow->RPort, 0, 0, vidWidth - 1, vidHeight - 1, (UBYTE *)pixels, vidWidth);
+  if(blitMode != 0 && blitLocked((const UBYTE *)pixels, y, rows, blitMode == 2)) {
+    return;
+  }
+  WriteChunkyPixels(qgWindow->RPort, 0, y, vidWidth - 1, y + rows - 1, (UBYTE *)pixels + y * vidWidth, vidWidth);
+}
+
+void QG_DrawFrame(void *pixels)
+{
+  QG_DrawFrameRows(pixels, 0, vidHeight);
 }
 
 void QG_SetPalette(unsigned char palette[768])

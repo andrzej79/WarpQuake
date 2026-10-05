@@ -157,6 +157,7 @@ void R_BeginEdgeFrame (void)
 	}
 }
 
+#if !WQ_ASM	// r_edge060.s
 /*
 ==============
 R_InsertNewEdges
@@ -198,6 +199,9 @@ addedge:
 	} while ((edgestoadd = next_edge) != NULL);
 }
 
+#endif	// !WQ_ASM
+
+#if !WQ_ASM	// r_edge060.s
 /*
 ==============
 R_RemoveEdges
@@ -213,6 +217,9 @@ void R_RemoveEdges (edge_t *pedge)
 	} while ((pedge = pedge->nextremove) != NULL);
 }
 
+#endif	// !WQ_ASM
+
+#if !WQ_ASM	// r_edge060.s
 /*
 ==============
 R_StepActiveU
@@ -277,6 +284,8 @@ pushback:
 			return;
 	}
 }
+
+#endif	// !WQ_ASM
 
 /*
 ==============
@@ -561,6 +570,7 @@ gotposition:
 }
 
 
+#if !WQ_ASM	// r_edge060.s
 /*
 ==============
 R_GenerateSpans
@@ -596,6 +606,8 @@ void R_GenerateSpans (void)
 
 	R_CleanupSpan ();
 }
+
+#endif	// !WQ_ASM
 
 /*
 ==============

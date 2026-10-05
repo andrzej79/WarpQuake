@@ -46,16 +46,23 @@ void D_StartParticles (void)
 
 /*
 ==============
-D_DrawParticle
+D_ProjectParticle
+
+warpQuake: D_DrawParticle's projection, as its own step.  The z coverage
+pass (d_zcover.c) runs it before the world is drawn, to know where the
+particle will draw, and D_DrawParticle then reuses the result instead of
+projecting again.  One function for both, so both see exactly the same
+pixel whatever the compiler does with the floats.
 ==============
 */
-void D_DrawParticle (particle_t *pparticle)
+void D_ProjectParticle (particle_t *pparticle)
 {
 	vec3_t	local, transformed;
 	float	zi;
-	byte	*pdest;
-	short	*pz;
-	int		i, izi, pix, count, u, v;
+	int		u, v;
+
+	pparticle->wq_frame = r_framecount;
+	pparticle->wq_u = -1;		// not drawn, until proven otherwise
 
 // transform point
 	VectorSubtract (pparticle->org, r_origin, local);
@@ -81,9 +88,32 @@ void D_DrawParticle (particle_t *pparticle)
 		return;
 	}
 
+	pparticle->wq_u = u;
+	pparticle->wq_v = v;
+	pparticle->wq_izi = (int)(zi * 0x8000);
+}
+
+/*
+==============
+D_DrawParticle
+==============
+*/
+void D_DrawParticle (particle_t *pparticle)
+{
+	byte	*pdest;
+	short	*pz;
+	int		i, izi, pix, count, u, v;
+
+	if (pparticle->wq_frame != r_framecount)
+		D_ProjectParticle (pparticle);
+	if (pparticle->wq_u < 0)
+		return;
+	u = pparticle->wq_u;
+	v = pparticle->wq_v;
+	izi = pparticle->wq_izi;
+
 	pz = d_pzbuffer + (d_zwidth * v) + u;
 	pdest = d_viewbuffer + d_scantable[v] + u;
-	izi = (int)(zi * 0x8000);
 
 	pix = izi >> d_pix_shift;
 

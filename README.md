@@ -37,6 +37,55 @@ vbcc, `-cpu=68060 -fpu=68060 -O1` with `-lm060`. The optimisation level is -O1 a
 because of vbcc's known -O2 loop miscompile (see warpPDFViewer). `OPT=2` builds an experiment
 into a separate object directory.
 
+`quake/*.s` holds 68060 assembly that replaces C routines, assembled with vasm. `WQ_ASM` in
+`quakedef.h` selects it, the way `id386` once selected id's x86 code. `make ASM=0` builds the
+all-C reference (`build/WarpQuake_C`, its own object directory), and every assembly routine must
+match it under `-crc`. Currently in assembly: `D_DrawSpans8`, `D_DrawSpans16` and `D_DrawZSpans` (`d_spans060.s`), and
+`R_DrawSurfaceBlock8_mip0..3`, the surface-cache lighting (`r_surf060.s`), and the edge-list scan
+core: `R_GenerateSpans`, `R_StepActiveU`, `R_InsertNewEdges`, `R_RemoveEdges` (`r_edge060.s`).
+Brush-model surfaces still go through the C `R_LeadingEdge`, whose 1/z ordering is float. The alias-model rasterizer's integer parts are in `d_polyse060.s`: the span drawer
+`D_PolysetDrawSpans8`, the left-edge walker `D_PolysetScanLeftEdge`, and the subdivision
+rasterizer `D_PolysetRecursiveTriangle`. `R_ClipEdge` with `R_EmitEdge` folded in is in
+`r_draw060.s`: vbcc's float code for both, with the recursion turned into a loop and one register
+save per edge. The platform side also
+has `src/move16.s`, the MOVE16 copies.
+
+Other v2 changes to the engine:
+- **Surface cache at least 4 MB** (`d_surf.c`). The default 600 KB evicted about 10% of the
+  blocks rebuilt each frame. `-surfcachesize <KB>` still overrides it.
+- **z coverage** (`d_zcover.c`, cvar `r_zcover`). Only alias models, sprites and particles ever
+  read the z-buffer, so before the world is drawn the screen area they can touch is bounded row
+  by row, and `D_DrawZSpans` writes only that. In demo1 that cuts z writes by 65%. The values
+  written are unchanged, so frames are identical. `r_zcover 0` writes every row in full, and
+  `-crc` against it is the check that no bound is too small.
+- **16-pixel span subdivision** (`D_DrawSpans16`, cvar `d_subdiv16`, default 1). This is what
+  id's x86 assembly drew in DOS and Windows Quake. It halves the divides and the per-block work
+  of the 8-pixel C version, which `d_subdiv16 0` still selects. Texels shift by a sub-pixel amount
+  against the 8-pixel version, so it has its own C reference and its own CRC.
+- **World vertices are projected once per view setup** (`R_ProjectedVertex`, `r_draw.c`). A vertex
+  is shared by several edges. `R_EmitEdge` now projects both ends with one function and keeps the
+  result per vertex until `modelorg` or the view axes change (`r_projstamp`). In demo1 that is 172
+  projections and 237 reuses a frame. It changes edge positions by sub-pixel rounding against id's
+  code, which projected the two ends of an edge at different precisions, so it has its own CRCs.
+- **Particles are projected once** (`D_ProjectParticle`, `d_part.c`). The z coverage pass needs
+  their screen positions before the world is drawn, and `D_DrawParticle` reuses them.
+- **Particle limit 1536** instead of 2048 (`r_part.c`; `-particles <n>` overrides). demo1 and
+  demo3 hit 2048 in bursts, since one explosion spawns 1024, and at that peak particles cost about
+  20% of a frame. A single explosion still gets all its particles. The profile reports the average
+  and peak active count.
+- **Not `-O2`.** Thirteen hot C files compiled frame-identical at `-O2` but ran slower on the
+  68060 (world BSP 6.98 → 7.34 ms), and the whole engine at `-O2` does not even give identical
+  frames. `O2_FILES` in the Makefile is the knob for further experiments.
+- **Model lighting cached per entity** (`R_LightPointEntity`, `r_light.c`): the light trace's hit
+  is kept while the entity stands still, and only the light-style sum is recomputed.
+- **`TransformVector` is an inline macro** (`r_shared.h`). As a call it was 1.2% of the frame.
+
+**What "bit-exact with the C" means here.** vbcc rounds a float local to single precision only
+where it spills it to memory, and where it spills depends on register allocation, so on the
+whole function. The assembly copies the float sequence of the game's own `d_scan.o`. A test
+that compiles the C in a different context, even with only the counter lines removed, gets
+different rounding and reports false mismatches.
+
 The engine keeps no AmigaOS header next to `quakedef.h`, because exec's inline macros clash
 with Quake's identifiers. Whatever the engine needs from the OS goes through the `QG_*` hooks
 in `quake/quakegeneric.h`, which are implemented in `src/`.
@@ -71,19 +120,32 @@ which is handy in benchmark scripts. The engine renders at the mode's full size.
 The console is on the key left of `1`. Esc opens the menu.
 
 Cvar `vid_blit` (saved in config.cfg) picks how a frame reaches the screen. `0` uses
-WriteChunkyPixels. `1` locks the bitmap with p96LockBitMap and copies rows into video memory.
-The profile shows what each costs.
+WriteChunkyPixels. `1` locks the bitmap with p96LockBitMap and copies rows with CopyMemQuick.
+`2` does the same with MOVE16 bursts: Warp's RTG memory is uncached and built for them. That
+needs 16-byte aligned rows; otherwise it falls back to `1`. The profile shows what each costs.
+
+**`membench`** (console command) measures this board's memory and writes
+`RAM:WarpQuake_membench.txt`. It covers sequential reads and writes, CopyMemQuick against MOVE16
+(fast RAM and VRAM), and a pointer chase at a 128-byte stride over 4 KB to 4 MB, which gives the
+latency of L1, of the FPGA L2 (96 KB, 6-way, 128-byte lines) and of DDR3.
 
 ## Profiling
 
-**Benchmark with a phase profile:**
+**Benchmark** (the number to compare with other ports):
 
 ```
 WarpQuake -benchmark +timedemo demo1
 ```
 
+**With a phase profile:**
+
+```
+WarpQuake -benchmark -prof +timedemo demo1
+```
+
 At the end of every timedemo the console, the Shell and `RAM:WarpQuake_prof.txt`
-(`-proflog <file>` to change) get a table like this:
+(`-proflog <file>` to change) get the frame time, the work counters and, with `-prof`, a
+table like this:
 
 ```
 ---- warpQuake profile: 968 frames, 59.52 ms/frame (16.8 fps) ----
@@ -103,10 +165,16 @@ world span pixels / z-buffer words / alias pixels / surface cache KB built / bli
 ```
 
 The timers are E-clock reads at phase boundaries only, a few dozen per frame. The last line
-says what they cost. Inside the hot loops there are only counter increments; those give the
+says what they cost: about 10 us a read here, 0.6 ms a frame, which is why the phase timers
+need `-prof` and a plain benchmark runs only the frame timer. Inside the hot loops there are only counter increments; those give the
 bytes each stage moves, which is the number that decides whether an offload to the ARM or
 FPGA could pay. The console commands are `prof` (report now; `prof <file>` also writes it)
 and `profreset`.
+
+**Mip bias** (trades texture sharpness for speed): `+d_mipscale 2` switches to the coarser
+mip levels nearer the eye (1 is id's default; 1.5, 2, 3 are steps), `+d_mipcap 1` never uses
+the full-size textures.  Fewer texels means fewer cache misses in the span loop and smaller
+surface-cache blocks.  Models are not affected.
 
 **Function-level hot spots** (the sampling profiler from warpPDFViewer):
 
@@ -128,13 +196,23 @@ WarpQuake -headless -basedir work: -benchmark -crc +host_framerate 0.05 +timedem
 ```
 
 This prints a CRC-32 over every frame rendered. `-crcfile <f>` writes one line per frame,
-which locates the first frame that differs. With a fixed `host_framerate` the timedemo renders
-the same frames at any speed. `-crc` reseeds `rand()` at the timedemo (the particles use it) and
-hides the console notify lines (they expire by wall-clock time). A match holds only between
+which locates the first frame that differs. `-crcdump <n>` writes frame n raw (8-bit, no
+palette) to `RAM:frame<n>_<w>x<h>.raw`. With a fixed `host_framerate` the timedemo renders
+the same frames at any speed. `-crc` reseeds `rand()` at the timedemo (the particles use it). It also
+hides the console notify lines, which expire by wall-clock time, and the console itself, which
+shows the build's compile time while it slides away. A match holds only between
 builds that evaluate floats the same way. An integer rewrite (a span loop in asm) must match
 exactly. A different `-O` level, or an FPU-path change, legitimately moves a few pixels, so for
-those compare the frame lists instead. The reference at 320x200, current build, under vamos:
-`a00347db`.
+those compare the frame lists instead. The references at 320x200, current build, under vamos, identical for `ASM=1` and `ASM=0` and
+for `r_zcover` 0 or 1:
+
+| demo | `d_subdiv16 1` (default) | `d_subdiv16 0` (id's 8-pixel C) |
+|---|---|---|
+| demo1 | `c5b7b611` | `cf175444` |
+| demo2 | `bdd76a83` | `7ef70975` |
+| demo3 | `53966e81` | `40d6596e` |
+
+(With the particle limit at 1536 and the world-vertex projection cache; see below.)
 
 ## Checking on the Mac (vamos)
 

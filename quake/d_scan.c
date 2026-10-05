@@ -90,6 +90,7 @@ void D_WarpScreen (void)
 	}
 }
 
+#if !WQ_ASM	// d_spans060.s
 /*
 =============
 D_DrawTurbulent8Span
@@ -108,6 +109,8 @@ void D_DrawTurbulent8Span (void)
 		r_turb_t += r_turb_tstep;
 	} while (--r_turb_spancount > 0);
 }
+
+#endif	// !WQ_ASM
 
 /*
 =============
@@ -242,9 +245,16 @@ void Turbulent8 (espan_t *pspan)
 	} while ((pspan = pspan->pnext) != NULL);
 }
 
+#if !WQ_ASM	// d_spans060.s has both D_DrawSpans8 and D_DrawZSpans
+
 /*
 =============
 D_DrawSpans8
+
+warpQuake: frozen.  d_spans060.s reproduces vbcc's float code for this exact
+function, and vbcc rounds a float local to single only where it spills it -
+which moves with any edit here, even one added counter line.  Change it, and
+the -crc comparison with the asm build has to be re-matched (vc -S).
 =============
 */
 void D_DrawSpans8 (espan_t *pspan)
@@ -378,6 +388,145 @@ void D_DrawSpans8 (espan_t *pspan)
 
 /*
 =============
+D_DrawSpans16
+
+warpQuake: D_DrawSpans8 with 16-pixel blocks - what id's x86 asm drew
+(d_draw16.s), restored as C so the 68060 asm has a reference to match.
+Frozen for the same reason as D_DrawSpans8: d_spans060.s repeats vbcc's
+float code for it.
+=============
+*/
+void D_DrawSpans16 (espan_t *pspan)
+{
+	int				count, spancount;
+	unsigned char	*pbase, *pdest;
+	fixed16_t		s, t, snext, tnext, sstep, tstep;
+	float			sdivz, tdivz, zi, z, du, dv, spancountminus1;
+	float			sdivz16stepu, tdivz16stepu, zi16stepu;
+
+	sstep = 0;	// keep compiler happy
+	tstep = 0;	// ditto
+
+	pbase = (unsigned char *)cacheblock;
+
+	sdivz16stepu = d_sdivzstepu * 16;
+	tdivz16stepu = d_tdivzstepu * 16;
+	zi16stepu = d_zistepu * 16;
+
+	do
+	{
+		pdest = (unsigned char *)((byte *)d_viewbuffer +
+				(screenwidth * pspan->v) + pspan->u);
+
+		count = pspan->count;
+		WQC_ADD (WQC_SPAN_PIXELS, count);
+
+	// calculate the initial s/z, t/z, 1/z, s, and t and clamp
+		du = (float)pspan->u;
+		dv = (float)pspan->v;
+
+		sdivz = d_sdivzorigin + dv*d_sdivzstepv + du*d_sdivzstepu;
+		tdivz = d_tdivzorigin + dv*d_tdivzstepv + du*d_tdivzstepu;
+		zi = d_ziorigin + dv*d_zistepv + du*d_zistepu;
+		z = (float)0x10000 / zi;	// prescale to 16.16 fixed-point
+
+		s = (int)(sdivz * z) + sadjust;
+		if (s > bbextents)
+			s = bbextents;
+		else if (s < 0)
+			s = 0;
+
+		t = (int)(tdivz * z) + tadjust;
+		if (t > bbextentt)
+			t = bbextentt;
+		else if (t < 0)
+			t = 0;
+
+		do
+		{
+		// calculate s and t at the far end of the span
+			if (count >= 16)
+				spancount = 16;
+			else
+				spancount = count;
+
+			count -= spancount;
+
+			if (count)
+			{
+			// calculate s/z, t/z, zi->fixed s and t at far end of span,
+			// calculate s and t steps across span by shifting
+				sdivz += sdivz16stepu;
+				tdivz += tdivz16stepu;
+				zi += zi16stepu;
+				z = (float)0x10000 / zi;	// prescale to 16.16 fixed-point
+
+				snext = (int)(sdivz * z) + sadjust;
+				if (snext > bbextents)
+					snext = bbextents;
+				else if (snext < 8)
+					snext = 8;	// prevent round-off error on <0 steps from
+								//  from causing overstepping & running off the
+								//  edge of the texture
+
+				tnext = (int)(tdivz * z) + tadjust;
+				if (tnext > bbextentt)
+					tnext = bbextentt;
+				else if (tnext < 8)
+					tnext = 8;	// guard against round-off error on <0 steps
+
+				sstep = (snext - s) >> 4;
+				tstep = (tnext - t) >> 4;
+			}
+			else
+			{
+			// calculate s/z, t/z, zi->fixed s and t at last pixel in span (so
+			// can't step off polygon), clamp, calculate s and t steps across
+			// span by division, biasing steps low so we don't run off the
+			// texture
+				spancountminus1 = (float)(spancount - 1);
+				sdivz += d_sdivzstepu * spancountminus1;
+				tdivz += d_tdivzstepu * spancountminus1;
+				zi += d_zistepu * spancountminus1;
+				z = (float)0x10000 / zi;	// prescale to 16.16 fixed-point
+				snext = (int)(sdivz * z) + sadjust;
+				if (snext > bbextents)
+					snext = bbextents;
+				else if (snext < 8)
+					snext = 8;	// prevent round-off error on <0 steps from
+								//  from causing overstepping & running off the
+								//  edge of the texture
+
+				tnext = (int)(tdivz * z) + tadjust;
+				if (tnext > bbextentt)
+					tnext = bbextentt;
+				else if (tnext < 8)
+					tnext = 8;	// guard against round-off error on <0 steps
+
+				if (spancount > 1)
+				{
+					sstep = (snext - s) / (spancount - 1);
+					tstep = (tnext - t) / (spancount - 1);
+				}
+			}
+
+			do
+			{
+				*pdest++ = *(pbase + (s >> 16) + (t >> 16) * cachewidth);
+				s += sstep;
+				t += tstep;
+			} while (--spancount > 0);
+
+			s = snext;
+			t = tnext;
+
+		} while (count > 0);
+
+	} while ((pspan = pspan->pnext) != NULL);
+}
+
+/*
+=============
 D_DrawZSpans
 =============
 */
@@ -386,7 +535,6 @@ void D_DrawZSpans (espan_t *pspan)
 	int				count, doublecount, izistep;
 	int				izi;
 	short			*pdest;
-	unsigned		ltemp;
 	double			zi;
 	float			du, dv;
 
@@ -396,9 +544,21 @@ void D_DrawZSpans (espan_t *pspan)
 
 	do
 	{
-		pdest = d_pzbuffer + (d_zwidth * pspan->v) + pspan->u;
+		int		lo, hi;
 
-		count = pspan->count;
+	// warpQuake: only the part of the row anything will read (d_zcover.c)
+		lo = d_zcov_x0[pspan->v];
+		hi = d_zcov_x1[pspan->v];
+		if (lo < pspan->u)
+			lo = pspan->u;
+		if (hi > pspan->u + pspan->count)
+			hi = pspan->u + pspan->count;
+		if (lo >= hi)
+			continue;
+
+		pdest = d_pzbuffer + (d_zwidth * pspan->v) + lo;
+
+		count = hi - lo;
 		WQC_ADD (WQC_ZSPAN_PIXELS, count);
 
 	// calculate the initial 1/z
@@ -408,6 +568,8 @@ void D_DrawZSpans (espan_t *pspan)
 		zi = d_ziorigin + dv*d_zistepv + du*d_zistepu;
 	// we count on FP exceptions being turned off to avoid range problems
 		izi = (int)(zi * 0x8000 * 0x10000);
+	// ... and where stepping from the span's start would have it at lo
+		izi += (lo - pspan->u) * izistep;
 
 		if ((intptr_t)pdest & 0x02)
 		{
@@ -418,13 +580,15 @@ void D_DrawZSpans (espan_t *pspan)
 
 		if ((doublecount = count >> 1) > 0)
 		{
+		// warpQuake: id packed the pair into one int with the second pixel
+		// in the high half - right on x86, swapped on a big-endian 68k.
+		// Two shorts are endian-neutral; d_spans060.s packs them correctly.
 			do
 			{
-				ltemp = izi >> 16;
+				pdest[0] = (short)(izi >> 16);
 				izi += izistep;
-				ltemp |= izi & 0xFFFF0000;
+				pdest[1] = (short)(izi >> 16);
 				izi += izistep;
-				*(int *)pdest = ltemp;
 				pdest += 2;
 			} while (--doublecount > 0);
 		}
@@ -434,3 +598,5 @@ void D_DrawZSpans (espan_t *pspan)
 
 	} while ((pspan = pspan->pnext) != NULL);
 }
+
+#endif	// !WQ_ASM

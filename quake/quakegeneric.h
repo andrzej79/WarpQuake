@@ -43,6 +43,9 @@ void QG_Create(int argc, char *argv[]);
 void QG_Init(void);
 void QG_Quit(void);
 void QG_DrawFrame(void *pixels);
+// warpQuake: only rows y .. y+rows-1 of the frame changed (the rest of the
+// display already shows the rest of pixels)
+void QG_DrawFrameRows(void *pixels, int y, int rows);
 void QG_SetPalette(unsigned char palette[768]);
 int QG_GetKey(int *down, int *key);
 void QG_GetMouseMove(int *x, int *y);
@@ -59,7 +62,7 @@ void QG_Error(const char *msg);         // report a fatal error, then exit(1)
 
 // v1: the display mode is chosen at run time
 void QG_GetVideoSize(int *width, int *height);  // valid after QG_Init()
-void QG_SetBlitMode(int mode);          // vid_blit: 0 WriteChunkyPixels, 1 lock + copy
+void QG_SetBlitMode(int mode);          // vid_blit: 0 WriteChunkyPixels, 1 lock + copy, 2 lock + MOVE16
 const char *QG_VideoInfo(void);         // mode and blit path, for reports
 
 // v1: instrumentation (wq_prof.c)
@@ -67,5 +70,6 @@ unsigned long QG_Ticks(void);           // free-running counter, wraps
 unsigned long QG_TickRate(void);        // its frequency in Hz
 int QG_SampleStart(void);               // the sampling profiler; 0 if it cannot run
 unsigned long QG_SampleStop(const char *path);  // saves; returns the sample count
+const char *QG_MemBench(void);          // memory access costs, as a text report
 
 #endif // __QUAKEGENERIC__

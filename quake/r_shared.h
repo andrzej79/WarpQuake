@@ -120,6 +120,13 @@ extern	float	xscaleshrink, yscaleshrink;
 extern	int d_lightstylevalue[256]; // 8.8 frac of base light value
 
 extern void TransformVector (vec3_t in, vec3_t out);
+// warpQuake: inline - called per surface (D_CalcGradients) and per sprite, and
+// as a call it was 1.2% of the frame on a 68060.  The same expressions as the
+// function in r_misc.c, so the results are the same.
+#define TransformVector(in, out) \
+	((out)[0] = DotProduct ((in), vright), \
+	 (out)[1] = DotProduct ((in), vup), \
+	 (out)[2] = DotProduct ((in), vpn))
 extern void SetUpForLineScan(fixed8_t startvertu, fixed8_t startvertv,
 	fixed8_t endvertu, fixed8_t endvertv);
 

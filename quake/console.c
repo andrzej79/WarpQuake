@@ -592,6 +592,11 @@ void Con_DrawConsole (int lines, qboolean drawinput)
 	if (lines <= 0)
 		return;
 
+// warpQuake -crc: the console shows the build's compile time ("Exe:") while
+// it slides away at the start of a timedemo, so no two builds would match
+	if (wqp_crcon)
+		return;
+
 // draw the background
 	Draw_ConsoleBackground (lines);
 

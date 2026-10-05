@@ -28,12 +28,13 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 viddef_t	vid;				// global video state
 
 // warpQuake: sized at run time from the mode the platform layer opened
-byte	*vid_buffer;
+byte	*vid_buffer;			// 16-byte aligned: the MOVE16 blit needs it
+static byte	*vid_buffer_mem;	// what calloc returned
 short	*zbuffer;
 byte	*surfcache;
 size_t	surfcache_size;
 
-// 0: WriteChunkyPixels, 1: lock the screen and copy (see QG_SetBlitMode)
+// 0: WriteChunkyPixels, 1: lock + CopyMemQuick, 2: lock + MOVE16 (QG_SetBlitMode)
 cvar_t	vid_blit = {"vid_blit", "0", true};
 static int	blitmode = -1;
 
@@ -76,9 +77,10 @@ void	VID_Init (unsigned char *palette)
 		Sys_Error ("VID_Init: %dx%d is outside 320x200 .. %dx%d", width, height, MAXWIDTH, MAXHEIGHT);
 
 	// zeroed: what malloc leaves there differs per build, and -crc sees it
-	vid_buffer = calloc (width * height, 1);
+	vid_buffer_mem = calloc (width * height + 15, 1);
+	vid_buffer = (byte *)(((intptr_t)vid_buffer_mem + 15) & ~(intptr_t)15);
 	zbuffer = calloc (width * height, sizeof(short));
-	if (!vid_buffer || !zbuffer)
+	if (!vid_buffer_mem || !zbuffer)
 		Sys_Error ("VID_Init: no memory for a %dx%d frame", width, height);
 
 	vid.width = vid.conwidth = width;
@@ -107,10 +109,10 @@ void	VID_Shutdown (void)
 {
 	free(surfcache);
 	free(zbuffer);
-	free(vid_buffer);
+	free(vid_buffer_mem);
 	surfcache = NULL;
 	zbuffer = NULL;
-	vid_buffer = NULL;
+	vid_buffer = vid_buffer_mem = NULL;
 }
 
 void	VID_Update (vrect_t *rects)
@@ -122,12 +124,27 @@ void	VID_Update (vrect_t *rects)
 	}
 
 	{
-		WQP_BEGIN (WQP_BLIT);
-		// quake generic
-		QG_DrawFrame(vid.buffer);
-		WQP_END (WQP_BLIT);
+		int		y0 = vid.height, y1 = 0;
+		vrect_t	*r;
+
+		// warpQuake: only the rows SCR_UpdateScreen says changed (it passes
+		// the whole screen, the top above the status bar, or just the 3D
+		// view, keeping track of what it redrew)
+		for (r = rects ; r ; r = r->pnext)
+		{
+			if (r->y < y0)
+				y0 = r->y;
+			if (r->y + r->height > y1)
+				y1 = r->y + r->height;
+		}
+		if (y1 > y0)
+		{
+			WQP_BEGIN (WQP_BLIT);
+			QG_DrawFrameRows (vid.buffer, y0, y1 - y0);
+			WQP_END (WQP_BLIT);
+			WQC_ADD (WQC_BLIT_BYTES, vid.width * (y1 - y0));
+		}
 	}
-	WQC_ADD (WQC_BLIT_BYTES, vid.width * vid.height);
 	if (wqp_crcon)
 	{
 		WQP_BEGIN (WQP_CRC);
