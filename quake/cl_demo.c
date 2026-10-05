@@ -19,6 +19,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 */
 
 #include "quakedef.h"
+#include "wq_prof.h"
 
 void CL_FinishTimeDemo (void);
 
@@ -105,7 +106,10 @@ int CL_GetMessage (void)
 			// if this is the second frame, grab the real td_starttime
 			// so the bogus time on the first frame doesn't count
 				if (host_framecount == cls.td_startframe + 1)
+				{
 					cls.td_starttime = realtime;
+					WQP_TimedemoStart ();
+				}
 			}
 			else if ( /* cl.time > 0 && */ cl.time <= cl.mtime[0])
 			{
@@ -335,6 +339,12 @@ void CL_FinishTimeDemo (void)
 	if (!time)
 		time = 1;
 	Con_Printf ("%i frames %5.1f seconds %5.1f fps\n", frames, time, frames/time);
+	WQP_TimedemoEnd ();
+
+// warpQuake: -benchmark quits after one timedemo, for scripted runs.
+// Not "quit": outside the console that asks "are you sure?" first.
+	if (COM_CheckParm ("-benchmark"))
+		Sys_Quit ();
 }
 
 /*
@@ -355,6 +365,7 @@ void CL_TimeDemo_f (void)
 		return;
 	}
 
+	WQP_TimedemoCommand ();
 	CL_PlayDemo_f ();
 	
 // cls.td_starttime will be grabbed at the second frame of the demo, so

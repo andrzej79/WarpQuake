@@ -24,7 +24,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include "quakekeys.h"
 
 #define QUAKEGENERIC_RES_X 320
-#define QUAKEGENERIC_RES_Y 240
+#define QUAKEGENERIC_RES_Y 200
 
 #define QUAKEGENERIC_JOY_MAX_AXES 6
 #define QUAKEGENERIC_JOY_AXIS_X 0
@@ -47,5 +47,25 @@ void QG_SetPalette(unsigned char palette[768]);
 int QG_GetKey(int *down, int *key);
 void QG_GetMouseMove(int *x, int *y);
 void QG_GetJoyAxes(float *axes);
+
+// warpQuake: the rest of the OS the engine needs, so that no AmigaOS header
+// is ever included next to quakedef.h (exec's inline macros and Quake's
+// identifiers do not mix).
+const char *QG_BaseDir(void);           // where id1/ lives
+double QG_FloatTime(void);              // seconds, monotonic
+void QG_SendKeyEvents(void);            // drain the window's messages
+void QG_Mkdir(const char *path);
+void QG_Error(const char *msg);         // report a fatal error, then exit(1)
+
+// v1: the display mode is chosen at run time
+void QG_GetVideoSize(int *width, int *height);  // valid after QG_Init()
+void QG_SetBlitMode(int mode);          // vid_blit: 0 WriteChunkyPixels, 1 lock + copy
+const char *QG_VideoInfo(void);         // mode and blit path, for reports
+
+// v1: instrumentation (wq_prof.c)
+unsigned long QG_Ticks(void);           // free-running counter, wraps
+unsigned long QG_TickRate(void);        // its frequency in Hz
+int QG_SampleStart(void);               // the sampling profiler; 0 if it cannot run
+unsigned long QG_SampleStop(const char *path);  // saves; returns the sample count
 
 #endif // __QUAKEGENERIC__

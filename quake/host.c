@@ -20,6 +20,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 // host.c -- coordinates spawning and killing of local servers
 
 #include "quakedef.h"
+#include "wq_prof.h"
 #include "r_local.h"
 
 /*
@@ -591,6 +592,11 @@ void _Host_Frame (float time)
 // decide the simulation time
 	if (!Host_FilterTime (time))
 		return;			// don't run too fast, or packets will flood out
+
+	WQP_FrameStart ();
+	{
+	WQP_BEGIN (WQP_FRAME);
+	WQP_BEGIN (WQP_INPUT);
 		
 // get new key events
 	Sys_SendKeyEvents ();
@@ -600,6 +606,7 @@ void _Host_Frame (float time)
 
 // process console commands
 	Cbuf_Execute ();
+	WQP_END (WQP_INPUT);
 
 	NET_Poll();
 
@@ -617,7 +624,11 @@ void _Host_Frame (float time)
 	Host_GetConsoleCommands ();
 	
 	if (sv.active)
+	{
+		WQP_BEGIN (WQP_SERVER);
 		Host_ServerFrame ();
+		WQP_END (WQP_SERVER);
+	}
 
 //-------------------
 //
@@ -635,19 +646,27 @@ void _Host_Frame (float time)
 // fetch results from server
 	if (cls.state == ca_connected)
 	{
+		WQP_BEGIN (WQP_CLIENT);
 		CL_ReadFromServer ();
+		WQP_END (WQP_CLIENT);
 	}
 
 // update video
 	if (host_speeds.value)
 		time1 = Sys_FloatTime ();
 		
-	SCR_UpdateScreen ();
+	{
+		WQP_BEGIN (WQP_SCREEN);
+		SCR_UpdateScreen ();
+		WQP_END (WQP_SCREEN);
+	}
 
 	if (host_speeds.value)
 		time2 = Sys_FloatTime ();
 		
 // update audio
+	{
+	WQP_BEGIN (WQP_SOUND);
 	if (cls.signon == SIGNONS)
 	{
 		S_Update (r_origin, vpn, vright, vup);
@@ -655,6 +674,8 @@ void _Host_Frame (float time)
 	}
 	else
 		S_Update (vec3_origin, vec3_origin, vec3_origin, vec3_origin);
+	WQP_END (WQP_SOUND);
+	}
 	
 	CDAudio_Update();
 
@@ -669,6 +690,8 @@ void _Host_Frame (float time)
 	}
 	
 	host_framecount++;
+	WQP_END (WQP_FRAME);
+	}
 }
 
 void Host_Frame (float time)
@@ -804,6 +827,7 @@ void Host_Init (quakeparms_t *parms)
 	Host_InitVCR (parms);
 	COM_Init (parms->basedir);
 	Host_InitLocal ();
+	WQP_Init ();
 	W_LoadWadFile ("gfx.wad");
 	Key_Init ();
 	Con_Init ();	

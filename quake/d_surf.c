@@ -20,6 +20,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 // d_surf.c: rasterization driver surface heap manager
 
 #include "quakedef.h"
+#include "wq_prof.h"
 #include "d_local.h"
 #include "r_local.h"
 
@@ -327,7 +328,13 @@ surfcache_t *D_CacheSurface (msurface_t *surface, int miplevel)
 	r_drawsurf.surf = surface;
 
 	c_surf++;
-	R_DrawSurface ();
+	WQC_ADD (WQC_CACHE_BUILDS, 1);
+	WQC_ADD (WQC_CACHE_BYTES, r_drawsurf.surfwidth * r_drawsurf.surfheight);
+	{
+		WQP_BEGIN (WQP_D_CACHE);
+		R_DrawSurface ();
+		WQP_END (WQP_D_CACHE);
+	}
 
 	return surface->cachespots[miplevel];
 }

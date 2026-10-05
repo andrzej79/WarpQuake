@@ -22,6 +22,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 // Portable C scan-level rasterization code, all pixel depths.
 
 #include "quakedef.h"
+#include "wq_prof.h"
 #include "r_local.h"
 #include "d_local.h"
 
@@ -137,6 +138,7 @@ void Turbulent8 (espan_t *pspan)
 				(screenwidth * pspan->v) + pspan->u);
 
 		count = pspan->count;
+		WQC_ADD (WQC_TURB_PIXELS, count);
 
 	// calculate the initial s/z, t/z, 1/z, s, and t and clamp
 		du = (float)pspan->u;
@@ -268,6 +270,7 @@ void D_DrawSpans8 (espan_t *pspan)
 				(screenwidth * pspan->v) + pspan->u);
 
 		count = pspan->count;
+		WQC_ADD (WQC_SPAN_PIXELS, count);
 
 	// calculate the initial s/z, t/z, 1/z, s, and t and clamp
 		du = (float)pspan->u;
@@ -396,6 +399,7 @@ void D_DrawZSpans (espan_t *pspan)
 		pdest = d_pzbuffer + (d_zwidth * pspan->v) + pspan->u;
 
 		count = pspan->count;
+		WQC_ADD (WQC_ZSPAN_PIXELS, count);
 
 	// calculate the initial 1/z
 		du = (float)pspan->u;

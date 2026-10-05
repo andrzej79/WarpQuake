@@ -1,0 +1,8 @@
+# Objects and binaries
+build/
+# FTP login for tools/amiget.py - never commit
+tools/ftp_config.local
+# Logs and files fetched from the Amiga: local measurements only
+temp/
+# Python bytecode from importing tools/*.py
+__pycache__/

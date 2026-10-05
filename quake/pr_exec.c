@@ -19,6 +19,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 */
 
 #include "quakedef.h"
+#include "wq_prof.h"
 
 
 /*
@@ -358,7 +359,23 @@ int PR_LeaveFunction (void)
 PR_ExecuteProgram
 ====================
 */
+static void PR_ExecuteProgram_ (func_t fnum);
+
+// warpQuake: timed at the outermost call; builtins can call back in
 void PR_ExecuteProgram (func_t fnum)
+{
+	if (wqp_qcdepth++ == 0)
+	{
+		WQP_BEGIN (WQP_QC);
+		PR_ExecuteProgram_ (fnum);
+		WQP_END (WQP_QC);
+	}
+	else
+		PR_ExecuteProgram_ (fnum);
+	wqp_qcdepth--;
+}
+
+static void PR_ExecuteProgram_ (func_t fnum)
 {
 	eval_t	*a, *b, *c;
 	int			s;

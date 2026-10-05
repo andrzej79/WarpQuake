@@ -20,6 +20,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 // r_main.c
 
 #include "quakedef.h"
+#include "wq_prof.h"
 #include "r_local.h"
 
 //define	PASSAGES
@@ -879,7 +880,11 @@ void R_EdgeDrawing (void)
 		rw_time1 = Sys_FloatTime ();
 	}
 
-	R_RenderWorld ();
+	{
+		WQP_BEGIN (WQP_R_WORLD);
+		R_RenderWorld ();
+		WQP_END (WQP_R_WORLD);
+	}
 
 	if (r_drawculledpolys)
 		R_ScanEdges ();
@@ -894,7 +899,11 @@ void R_EdgeDrawing (void)
 		db_time1 = rw_time2;
 	}
 
-	R_DrawBEntitiesOnList ();
+	{
+		WQP_BEGIN (WQP_R_BMODELS);
+		R_DrawBEntitiesOnList ();
+		WQP_END (WQP_R_BMODELS);
+	}
 
 	if (r_dspeeds.value)
 	{
@@ -910,7 +919,11 @@ void R_EdgeDrawing (void)
 	}
 	
 	if (!(r_drawpolys | r_drawculledpolys))
+	{
+		WQP_BEGIN (WQP_R_SCAN);
 		R_ScanEdges ();
+		WQP_END (WQP_R_SCAN);
+	}
 }
 
 
@@ -921,15 +934,26 @@ R_RenderView
 r_refdef must be set before the first call
 ================
 */
+// On the heap, not R_RenderView_'s stack: 64 KB at 320x200, and more once
+// the resolution is no longer fixed.
+static byte	*warpbuffer;
+
 void R_RenderView_ (void)
 {
-	byte	warpbuffer[WARP_WIDTH * WARP_HEIGHT];
+	if (!warpbuffer)
+	{
+		warpbuffer = calloc (WARP_WIDTH * WARP_HEIGHT, 1);
+		if (!warpbuffer)
+			Sys_Error ("R_RenderView: no memory for the warp buffer");
+	}
 
 	r_warpbuffer = warpbuffer;
 
 	if (r_timegraph.value || r_speeds.value || r_dspeeds.value)
 		r_time1 = Sys_FloatTime ();
 
+	{
+	WQP_BEGIN (WQP_R_SETUP);
 	R_SetupFrame ();
 
 #ifdef PASSAGES
@@ -937,6 +961,8 @@ SetVisibilityByPassages ();
 #else
 	R_MarkLeaves ();	// done here so we know if we're in water
 #endif
+	WQP_END (WQP_R_SETUP);
+	}
 
 // make FDIV fast. This reduces timing precision after we've been running for a
 // while, so we don't do it globally.  This also sets chop mode, and we do it
@@ -969,7 +995,11 @@ SetVisibilityByPassages ();
 		de_time1 = se_time2;
 	}
 
-	R_DrawEntitiesOnList ();
+	{
+		WQP_BEGIN (WQP_R_ENTS);
+		R_DrawEntitiesOnList ();
+		WQP_END (WQP_R_ENTS);
+	}
 
 	if (r_dspeeds.value)
 	{
@@ -977,7 +1007,11 @@ SetVisibilityByPassages ();
 		dv_time1 = de_time2;
 	}
 
-	R_DrawViewModel ();
+	{
+		WQP_BEGIN (WQP_R_VIEWMODEL);
+		R_DrawViewModel ();
+		WQP_END (WQP_R_VIEWMODEL);
+	}
 
 	if (r_dspeeds.value)
 	{
@@ -985,13 +1019,21 @@ SetVisibilityByPassages ();
 		dp_time1 = Sys_FloatTime ();
 	}
 
-	R_DrawParticles ();
+	{
+		WQP_BEGIN (WQP_R_PARTICLES);
+		R_DrawParticles ();
+		WQP_END (WQP_R_PARTICLES);
+	}
 
 	if (r_dspeeds.value)
 		dp_time2 = Sys_FloatTime ();
 
 	if (r_dowarp)
+	{
+		WQP_BEGIN (WQP_R_WARP);
 		D_WarpScreen ();
+		WQP_END (WQP_R_WARP);
+	}
 
 	V_SetContentsColor (r_viewleaf->contents);
 
@@ -1035,7 +1077,11 @@ void R_RenderView (void)
 	if ( (intptr_t)(&r_warpbuffer) & 3 )
 		Sys_Error ("Globals are missaligned");
 
-	R_RenderView_ ();
+	{
+		WQP_BEGIN (WQP_RENDER);
+		R_RenderView_ ();
+		WQP_END (WQP_RENDER);
+	}
 }
 
 /*

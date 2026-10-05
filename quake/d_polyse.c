@@ -21,6 +21,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 // texture (used for Alias models)
 
 #include "quakedef.h"
+#include "wq_prof.h"
 #include "r_local.h"
 #include "d_local.h"
 
@@ -599,6 +600,8 @@ void D_PolysetDrawSpans8 (spanpackage_t *pspanpackage)
 	do
 	{
 		lcount = d_aspancount - pspanpackage->count;
+		if (lcount > 0)
+			WQC_ADD (WQC_POLY_PIXELS, lcount);
 
 		errorterm += erroradjustup;
 		if (errorterm >= 0)
@@ -669,6 +672,8 @@ void D_PolysetFillSpans8 (spanpackage_t *pspanpackage)
 		byte	*lpdest;
 
 		lcount = pspanpackage->count;
+		if (lcount > 0)
+			WQC_ADD (WQC_POLY_PIXELS, lcount);
 
 		if (lcount == -1)
 			return;

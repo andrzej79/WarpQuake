@@ -1731,6 +1731,7 @@ void COM_InitFilesystem (void)
 {
 	int             i, j;
 	char    basedir[MAX_OSPATH];
+	char    *sep;
 	searchpath_t    *search;
 
 //
@@ -1750,6 +1751,12 @@ void COM_InitFilesystem (void)
 		if ((basedir[j-1] == '\\') || (basedir[j-1] == '/'))
 			basedir[j-1] = 0;
 	}
+
+// AmigaDOS: "PROGDIR:/id1" would be the parent of PROGDIR:, and "/id1" the
+// parent of the current directory.  A volume/assign or an empty base joins
+// without the slash.
+	j = strlen (basedir);
+	sep = (j == 0 || basedir[j-1] == ':') ? "" : "/";
 
 //
 // -cachedir <path>
@@ -1772,12 +1779,12 @@ void COM_InitFilesystem (void)
 //
 // start up with GAMENAME by default (id1)
 //
-	COM_AddGameDirectory (va("%s/"GAMENAME, basedir) );
+	COM_AddGameDirectory (va("%s%s"GAMENAME, basedir, sep) );
 
 	if (COM_CheckParm ("-rogue"))
-		COM_AddGameDirectory (va("%s/rogue", basedir) );
+		COM_AddGameDirectory (va("%s%srogue", basedir, sep) );
 	if (COM_CheckParm ("-hipnotic"))
-		COM_AddGameDirectory (va("%s/hipnotic", basedir) );
+		COM_AddGameDirectory (va("%s%shipnotic", basedir, sep) );
 
 //
 // -game <gamedir>
@@ -1787,7 +1794,7 @@ void COM_InitFilesystem (void)
 	if (i && i < com_argc-1)
 	{
 		com_modified = true;
-		COM_AddGameDirectory (va("%s/%s", basedir, com_argv[i+1]));
+		COM_AddGameDirectory (va("%s%s%s", basedir, sep, com_argv[i+1]));
 	}
 
 //

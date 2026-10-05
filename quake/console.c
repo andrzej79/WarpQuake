@@ -22,13 +22,8 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #ifdef NeXT
 #include <libc.h>
 #endif
-#ifdef _MSC_VER
-#include <io.h> // open, write, close
-#else
-#include <unistd.h>
-#endif
-#include <fcntl.h>
 #include "quakedef.h"
+#include "wq_prof.h"
 
 int 		con_linewidth;
 
@@ -224,7 +219,7 @@ void Con_Init (void)
 		if (strlen (com_gamedir) < (MAXGAMEDIRLEN - strlen (t2)))
 		{
 			sprintf (temp, "%s%s", com_gamedir, t2);
-			unlink (temp);
+			remove (temp);	// ANSI; vbcc has no unlink()
 		}
 	}
 
@@ -356,14 +351,17 @@ void Con_DebugLog(char *file, char *fmt, ...)
 {
     va_list argptr; 
     static char data[1024];
-    int fd;
+    FILE *f;
     
     va_start(argptr, fmt);
     vsprintf(data, fmt, argptr);
     va_end(argptr);
-    fd = open(file, O_WRONLY | O_CREAT | O_APPEND, 0666);
-    write(fd, data, strlen(data));
-    close(fd);
+    // stdio, not POSIX open/write: vbcc's libc has no unistd.h
+    f = fopen(file, "a");
+    if (!f)
+        return;
+    fputs(data, f);
+    fclose(f);
 }
 
 
@@ -526,6 +524,11 @@ void Con_DrawNotify (void)
 	int		i;
 	float	time;
 	extern char chat_buffer[];
+
+// warpQuake -crc: the lines expire by wall-clock time (and con_times is a
+// float set from the double realtime), so they would make frames differ
+	if (wqp_crcon)
+		return;
 
 	v = 0;
 	for (i= con_current-NUM_CON_TIMES+1 ; i<=con_current ; i++)

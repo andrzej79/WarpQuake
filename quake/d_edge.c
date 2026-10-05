@@ -20,6 +20,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 // d_edge.c
 
 #include "quakedef.h"
+#include "wq_prof.h"
 #include "d_local.h"
 
 static int	miplevel;
@@ -171,7 +172,16 @@ void D_CalcGradients (msurface_t *pface)
 D_DrawSurfaces
 ==============
 */
+static void D_DrawSurfaces_ (void);
+
 void D_DrawSurfaces (void)
+{
+	WQP_BEGIN (WQP_D_SURFS);
+	D_DrawSurfaces_ ();
+	WQP_END (WQP_D_SURFS);
+}
+
+static void D_DrawSurfaces_ (void)
 {
 	surf_t			*s;
 	msurface_t		*pface;

@@ -21,6 +21,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 #include "quakedef.h"
 #include "errno.h"
+#include "quakegeneric.h"
 
 qboolean isDedicated;
 
@@ -135,6 +136,7 @@ int     Sys_FileTime (char *path)
 
 void Sys_mkdir (char *path)
 {
+	QG_Mkdir (path);
 }
 
 
@@ -154,13 +156,17 @@ void Sys_MakeCodeWriteable (unsigned long startaddr, unsigned long length)
 void Sys_Error (char *error, ...)
 {
 	va_list         argptr;
+	static char     text[1024];
+	static int      in_sys_error;
 
-	printf ("Sys_Error: ");   
 	va_start (argptr,error);
-	vprintf (error,argptr);
+	vsnprintf (text, sizeof(text), error, argptr);
 	va_end (argptr);
-	printf ("\n");
 
+	// no Host_Shutdown here: an error inside it would come straight back
+	if (in_sys_error++)
+		exit (1);
+	QG_Error (text);
 	exit (1);
 }
 
@@ -175,16 +181,14 @@ void Sys_Printf (char *fmt, ...)
 
 void Sys_Quit (void)
 {
+	// writes config.cfg; the platform layer's atexit() closes the screen
+	Host_Shutdown ();
 	exit (0);
 }
 
 double Sys_FloatTime (void)
 {
-	static double t;
-	
-	t += 0.1;
-	
-	return t;
+	return QG_FloatTime ();
 }
 
 char *Sys_ConsoleInput (void)
@@ -198,6 +202,7 @@ void Sys_Sleep (void)
 
 void Sys_SendKeyEvents (void)
 {
+	QG_SendKeyEvents ();
 }
 
 void Sys_HighFPPrecision (void)
