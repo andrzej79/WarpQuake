@@ -263,9 +263,75 @@ static void updateInfo(void)
   }
 }
 
+// Headless (vamos checks of the engine's mode change): four made-up modes,
+// ids HEADLESS_MODE + index; switching only changes the size and format.
+#define HEADLESS_MODE 0x100
+static const qgmode_t headlessModes[] = {
+  {HEADLESS_MODE + 0, 320, 200, 8},
+  {HEADLESS_MODE + 1, 640, 400, 8},
+  {HEADLESS_MODE + 2, 320, 200, 16},
+  {HEADLESS_MODE + 3, 640, 400, 16},
+};
+#define NUM_HEADLESS_MODES ((int)(sizeof(headlessModes) / sizeof(headlessModes[0])))
+
+// The screen and its game window in mode id; the mode's size and format
+// become the engine's.  FALSE, with nothing left open, if either fails.
+static BOOL openDisplay(ULONG id)
+{
+  vidWidth = (int)p96GetModeIDAttr(id, P96IDA_WIDTH);
+  vidHeight = (int)p96GetModeIDAttr(id, P96IDA_HEIGHT);
+  rgbFormat = (RGBFTYPE)p96GetModeIDAttr(id, P96IDA_RGBFORMAT);
+  pixFormat = qgFormat(rgbFormat);
+  pixBytes = (pixFormat == QG_PIX_CLUT8) ? 1 : 2;
+
+  qgScreen = OpenScreenTags(NULL, SA_DisplayID, id, SA_Width, vidWidth, SA_Height, vidHeight, SA_Depth, pixBytes * 8,
+                            SA_Quiet, TRUE, SA_ShowTitle, FALSE, SA_Type, CUSTOMSCREEN, SA_Exclusive, TRUE,
+                            SA_Draggable, FALSE, SA_Title, (ULONG) "WarpQuake", TAG_DONE);
+  if(qgScreen == NULL) {
+    return FALSE;
+  }
+  qgWindow = OpenWindowTags(NULL, WA_CustomScreen, (ULONG)qgScreen, WA_Left, 0, WA_Top, 0, WA_Width, vidWidth,
+                            WA_Height, vidHeight, WA_Borderless, TRUE, WA_Backdrop, TRUE, WA_Activate, TRUE,
+                            WA_RMBTrap, TRUE, WA_ReportMouse, TRUE, WA_NoCareRefresh, TRUE, WA_SimpleRefresh, TRUE,
+                            WA_IDCMP,
+                            IDCMP_RAWKEY | IDCMP_MOUSEMOVE | IDCMP_MOUSEBUTTONS | IDCMP_DELTAMOVE |
+                              IDCMP_ACTIVEWINDOW | IDCMP_INACTIVEWINDOW,
+                            TAG_DONE);
+  if(qgWindow == NULL) {
+    CloseScreen(qgScreen);
+    qgScreen = NULL;
+    return FALSE;
+  }
+  if(blankPointer != NULL) {
+    SetPointer(qgWindow, blankPointer, 1, 1, 0, 0);
+  }
+  SetRast(qgWindow->RPort, 0);
+  modeId = id;
+  updateInfo();
+  return TRUE;
+}
+
+static void closeDisplay(void)
+{
+  if(qgWindow != NULL) {
+    ClearPointer(qgWindow);
+    CloseWindow(qgWindow);
+    qgWindow = NULL;
+  }
+  if(qgScreen != NULL) {
+    CloseScreen(qgScreen);
+    qgScreen = NULL;
+  }
+  if(blendBuffer != NULL) {             // sized for the old mode
+    FreeVec(blendBuffer);
+    blendBuffer = NULL;
+  }
+}
+
 void QG_Init(void)
 {
   const char *arg;
+  int i;
 
   // The engine without a display: for vamos, which has no graphics.library,
   // and for checking renderer changes by frame checksums rather than by eye.
@@ -280,6 +346,13 @@ void QG_Init(void)
     if((arg = argValue("-bpp")) != NULL && atoi(arg) >= 15) {
       pixFormat = QG_PIX_RGB565;       // what the Warp's RTG offers
       pixBytes = 2;
+    }
+    // the made-up mode it matches, if any (QG_ListModes)
+    for(i = 0; i < NUM_HEADLESS_MODES; i++) {
+      if(headlessModes[i].width == vidWidth && headlessModes[i].height == vidHeight &&
+         headlessModes[i].bpp == pixBytes * 8) {
+        modeId = headlessModes[i].id;
+      }
     }
     updateInfo();
     qgPrintf("Video: headless %dx%d, %d bpp\n", vidWidth, vidHeight, pixBytes * 8);
@@ -300,40 +373,16 @@ void QG_Init(void)
     Sys_Error("No usable %sRTG screen mode (0x%08lx); 320x200 to 1280x1024, try -asl",
               wantDepth == 16 ? "16-bit " : (wantDepth == 8 ? "8-bit " : ""), modeId);
   }
-  vidWidth = (int)p96GetModeIDAttr(modeId, P96IDA_WIDTH);
-  vidHeight = (int)p96GetModeIDAttr(modeId, P96IDA_HEIGHT);
-  rgbFormat = (RGBFTYPE)p96GetModeIDAttr(modeId, P96IDA_RGBFORMAT);
-  pixFormat = qgFormat(rgbFormat);
-  pixBytes = (pixFormat == QG_PIX_CLUT8) ? 1 : 2;
-
-  qgScreen = OpenScreenTags(NULL, SA_DisplayID, modeId, SA_Width, vidWidth, SA_Height, vidHeight, SA_Depth,
-                            pixBytes * 8, SA_Quiet, TRUE, SA_ShowTitle, FALSE, SA_Type, CUSTOMSCREEN, SA_Exclusive,
-                            TRUE, SA_Draggable, FALSE, SA_Title, (ULONG) "WarpQuake", TAG_DONE);
-  if(qgScreen == NULL) {
-    Sys_Error("Cannot open a %dx%d %d-bit screen (mode 0x%08lx)", vidWidth, vidHeight, pixBytes * 8, modeId);
-  }
-
-  qgWindow = OpenWindowTags(NULL, WA_CustomScreen, (ULONG)qgScreen, WA_Left, 0, WA_Top, 0, WA_Width, vidWidth,
-                            WA_Height, vidHeight, WA_Borderless, TRUE, WA_Backdrop, TRUE, WA_Activate, TRUE,
-                            WA_RMBTrap, TRUE, WA_ReportMouse, TRUE, WA_NoCareRefresh, TRUE, WA_SimpleRefresh, TRUE,
-                            WA_IDCMP,
-                            IDCMP_RAWKEY | IDCMP_MOUSEMOVE | IDCMP_MOUSEBUTTONS | IDCMP_DELTAMOVE |
-                              IDCMP_ACTIVEWINDOW | IDCMP_INACTIVEWINDOW,
-                            TAG_DONE);
-  if(qgWindow == NULL) {
-    Sys_Error("Cannot open the game window");
-  }
 
   // A 1x1 transparent sprite: the pointer is hidden, the mouse still reports.
   blankPointer = AllocVec(6 * sizeof(UWORD), MEMF_CHIP | MEMF_CLEAR);
-  if(blankPointer != NULL) {
-    SetPointer(qgWindow, blankPointer, 1, 1, 0, 0);
-  }
 
-  SetRast(qgWindow->RPort, 0);
+  if(!openDisplay(modeId)) {
+    Sys_Error("Cannot open a %ldx%ld screen in mode 0x%08lx", p96GetModeIDAttr(modeId, P96IDA_WIDTH),
+              p96GetModeIDAttr(modeId, P96IDA_HEIGHT), modeId);
+  }
   qgInputReset();
   qgInputHandlerStart();
-  updateInfo();
   qgPrintf("Video: mode 0x%08lx %dx%d, %d bpp\n", modeId, vidWidth, vidHeight, pixBytes * 8);
 }
 
@@ -341,22 +390,10 @@ void QG_Init(void)
 void QG_Quit(void)
 {
   qgInputHandlerStop();
-  if(qgWindow != NULL) {
-    ClearPointer(qgWindow);
-    CloseWindow(qgWindow);
-    qgWindow = NULL;
-  }
+  closeDisplay();
   if(blankPointer != NULL) {
     FreeVec(blankPointer);
     blankPointer = NULL;
-  }
-  if(qgScreen != NULL) {
-    CloseScreen(qgScreen);
-    qgScreen = NULL;
-  }
-  if(blendBuffer != NULL) {
-    FreeVec(blendBuffer);
-    blendBuffer = NULL;
   }
   if(P96Base != NULL) {
     CloseLibrary(P96Base);
@@ -372,6 +409,109 @@ void QG_GetVideoSize(int *width, int *height)
 {
   *width = vidWidth;
   *height = vidHeight;
+}
+
+/*
+===============================================================================
+RUN-TIME MODE CHANGE (the video menu)
+===============================================================================
+*/
+
+int QG_ListModes(qgmode_t *modes, int max)
+{
+  ULONG id = INVALID_ID;
+  int saved = wantDepth, n = 0, i, j;
+
+  if(headless) {
+    for(n = 0; n < NUM_HEADLESS_MODES && n < max; n++) {
+      modes[n] = headlessModes[n];
+    }
+    return n;
+  }
+  wantDepth = 0;                        // both depths, whatever -bpp said
+  while(n < max && (id = NextDisplayInfo(id)) != INVALID_ID) {
+    if(modeUsable(id)) {
+      modes[n].id = id;
+      modes[n].width = (int)p96GetModeIDAttr(id, P96IDA_WIDTH);
+      modes[n].height = (int)p96GetModeIDAttr(id, P96IDA_HEIGHT);
+      modes[n].bpp = (qgFormat(p96GetModeIDAttr(id, P96IDA_RGBFORMAT)) == QG_PIX_CLUT8) ? 8 : 16;
+      n++;
+    }
+  }
+  wantDepth = saved;
+  // by depth, width, height, then id (insertion sort: a few dozen modes)
+  for(i = 1; i < n; i++) {
+    qgmode_t m = modes[i];
+    long key = ((long)m.bpp << 24) | ((long)m.width << 12) | m.height;
+
+    for(j = i; j > 0; j--) {
+      long k = ((long)modes[j - 1].bpp << 24) | ((long)modes[j - 1].width << 12) | modes[j - 1].height;
+
+      if(k < key || (k == key && modes[j - 1].id < m.id)) {
+        break;
+      }
+      modes[j] = modes[j - 1];
+    }
+    modes[j] = m;
+  }
+  // One entry per size and depth: the RTG board can list the same one twice
+  // (on the Warp, 320x200 also comes as a 0xfff0xxxx mode).  The open mode
+  // wins, else the lower id (the board's own, there).
+  for(i = j = 0; i < n; i++) {
+    if(j > 0 && modes[j - 1].bpp == modes[i].bpp && modes[j - 1].width == modes[i].width &&
+       modes[j - 1].height == modes[i].height) {
+      if(modes[i].id == modeId) {
+        modes[j - 1] = modes[i];
+      }
+      continue;
+    }
+    modes[j++] = modes[i];
+  }
+  return j;
+}
+
+unsigned long QG_GetMode(void)
+{
+  return modeId;
+}
+
+int QG_SetMode(unsigned long id)
+{
+  ULONG old = modeId;
+  int saved = wantDepth;
+  BOOL usable;
+
+  if(headless) {
+    if(id < HEADLESS_MODE || id >= HEADLESS_MODE + NUM_HEADLESS_MODES) {
+      return 0;
+    }
+    vidWidth = headlessModes[id - HEADLESS_MODE].width;
+    vidHeight = headlessModes[id - HEADLESS_MODE].height;
+    pixBytes = headlessModes[id - HEADLESS_MODE].bpp / 8;
+    pixFormat = (pixBytes == 2) ? QG_PIX_RGB565 : QG_PIX_CLUT8;
+    modeId = id;
+    updateInfo();
+    return 1;
+  }
+  if(qgScreen == NULL) {
+    return 0;
+  }
+  wantDepth = 0;
+  usable = modeUsable(id);
+  wantDepth = saved;
+  if(!usable) {
+    return 0;
+  }
+  closeDisplay();
+  if(openDisplay(id)) {
+    saveMode(id);
+    qgPrintf("Video: mode 0x%08lx %dx%d, %d bpp\n", modeId, vidWidth, vidHeight, pixBytes * 8);
+    return 1;
+  }
+  if(!openDisplay(old)) {
+    Sys_Error("Cannot open mode 0x%08lx, nor reopen 0x%08lx", id, old);
+  }
+  return 0;
 }
 
 int QG_GetPixelFormat(void)

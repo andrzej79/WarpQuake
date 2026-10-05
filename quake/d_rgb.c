@@ -84,6 +84,10 @@ void D_RGB_Init (int format)
 		d_rgbquartermask = 0;
 	vid.colormap16 = colormap16;
 	built = false;
+	// a new mode: no blend, and the platform's set up for the new format
+	memset (blendrgba, 0, sizeof(blendrgba));
+	QG_SetBlend (0, 0, 0, 0);
+	d_rgbblendchanged = true;
 	d_rgbtest = (r_pixbytes == 2 && COM_CheckParm ("-rgbtest"));
 	if (d_rgbtest)
 		d_rgbquartermask = 0;			// Draw_FadeScreen's 8-bit pattern

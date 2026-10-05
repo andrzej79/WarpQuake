@@ -105,6 +105,12 @@ Run it from a Shell: `WarpQuake [options]`. It finds `id1/` next to the program 
 from then on. `-asl` asks again. `-modeid` or `-width`/`-height` override it for one run,
 which is handy in benchmark scripts. The engine renders at the mode's full size.
 
+**In the game**, Options / Video Options lists the modes, 8-bit ones left and 16-bit ones right
+(arrows choose, Enter switches, the mode now open is white). The switch takes effect at once,
+in a level too, and is saved like an ASL choice. From the console, `vid_modelist` prints the
+same list and `vid_setmode 640x480x16` (or `vid_setmode 0x<id>`) switches; both work in
+scripts.
+
 | option | meaning |
 |---|---|
 | `-asl` | choose the screen mode again |

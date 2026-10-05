@@ -79,6 +79,19 @@ enum
 	QG_PIX_BGR565PC, QG_PIX_BGR555PC
 };
 int QG_GetPixelFormat(void);
+// The screen modes the engine can use (RTG, 8-bit CLUT or 16-bit RGB, within
+// its size limits), for the video menu: at most max, sorted by depth, width,
+// height.  0 when headless.
+typedef struct
+{
+	unsigned long	id;
+	int				width, height, bpp;
+} qgmode_t;
+int QG_ListModes(qgmode_t *modes, int max);
+unsigned long QG_GetMode(void);         // the mode now open
+// Close the display and open it in mode id, which becomes the saved mode.
+// 0 if that failed (the old mode is open again) or there is no display.
+int QG_SetMode(unsigned long id);
 // 16bpp: blend the frame toward r,g,b (0..255) by alpha/256 as it is shown;
 // alpha 0 is off.  The damage and bonus flashes, which an 8-bit screen gets
 // from its palette.
