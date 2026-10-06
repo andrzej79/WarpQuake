@@ -443,6 +443,8 @@ int		load_cursor;		// 0 < load_cursor < MAX_SAVEGAMES
 char	m_filenames[MAX_SAVEGAMES][SAVEGAME_COMMENT_LENGTH+1];
 int		loadable[MAX_SAVEGAMES];
 
+void Host_ReadSaveComment (FILE *f, char *buf, int size);
+
 void M_ScanSaves (void)
 {
 	int		i, j;
@@ -459,7 +461,7 @@ void M_ScanSaves (void)
 		if (!f)
 			continue;
 		fscanf (f, "%i\n", &version);
-		fscanf (f, "%79s\n", name);
+		Host_ReadSaveComment (f, name, 80);	// warpQuake: spaces too (host_cmd.c)
 		strncpy (m_filenames[i], name, sizeof(m_filenames[i])-1);
 
 	// change _ back to space

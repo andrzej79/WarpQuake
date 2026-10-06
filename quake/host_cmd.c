@@ -400,6 +400,26 @@ Host_SavegameComment
 Writes a SAVEGAME_COMMENT_LENGTH character comment describing the current 
 ===============
 */
+/*
+===============
+Host_ReadSaveComment
+
+warpQuake: the comment line of a savegame, all of it.  Quake writes it with
+'_' for every space and reads it back as one %s word; saves from other ports
+kept the spaces ("Satan's Dark Delight__kills:..."), and one word off left
+the rest of the file misread - the map name came out as part of the comment.
+===============
+*/
+void Host_ReadSaveComment (FILE *f, char *buf, int size)
+{
+	int		c, n = 0;
+
+	while ((c = fgetc (f)) != EOF && c != '\n')
+		if (n < size - 1 && c != '\r')
+			buf[n++] = c;
+	buf[n] = 0;
+}
+
 void Host_SavegameComment (char *text)
 {
 	int		i;
@@ -565,7 +585,7 @@ void Host_Loadgame_f (void)
 		Con_Printf ("Savegame is version %i, not %i\n", version, SAVEGAME_VERSION);
 		return;
 	}
-	fscanf (f, "%s\n", str);
+	Host_ReadSaveComment (f, str, sizeof(str));
 	for (i=0 ; i<NUM_SPAWN_PARMS ; i++)
 		fscanf (f, "%f\n", &spawn_parms[i]);
 // this silliness is so we can load 1.06 save files, which have float skill values
