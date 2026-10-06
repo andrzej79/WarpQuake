@@ -179,6 +179,10 @@ unsigned long QG_SampleStop(const char *path)
 
 static void cleanup(void)
 {
+  // AHI, if the game did not close it: Sys_Error skips Host_Shutdown, and
+  // AHI's sound hook pointed into this program after it was unloaded - the
+  // next mixing pass crashed warp.audio
+  QG_SoundShutdown();
   // The sampler task first: it must not outlive the code it runs in.
   wprofStop();
   wprofFree();
