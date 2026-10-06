@@ -8,3 +8,9 @@ tools/ftp_config.local
 temp/
 # Python bytecode from importing tools/*.py
 __pycache__/
+# macOS Finder and volume metadata
+.DS_Store
+._*
+.AppleDouble/
+.Spotlight-V100/
+.Trashes/
